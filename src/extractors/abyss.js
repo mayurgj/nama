@@ -46,8 +46,10 @@ async function extractAbyss(url, langName = "Multi") {
           url: s.url,
           quality,
           headers: {
-            "Referer": "https://playhydrax.com/",
-            "Origin": "https://playhydrax.com",
+            // Hydrax CDN only serves bytes to clients coming from the abyssplayer
+            // embed origin — a playhydrax Referer gets a cf-cached 404.
+            "Referer": "https://player.abyssplayer.com/",
+            "Origin": "https://player.abyssplayer.com",
             "User-Agent": HEADERS["User-Agent"]
           },
           type: s.url.includes(".m3u8") ? "m3u8" : "mp4"

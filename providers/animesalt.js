@@ -2,7 +2,7 @@
  * AnimeSalt Nuvio Scraper Plugin
  * Compatible with Nuvio App (Mobile & Android TV) and All-in-One-Nuvio
  * Source: https://animesalt.cx/
- * Generated: 2026-10-24T14:47:54.118Z
+ * Generated: 2026-10-24T14:57:23.007Z
  */
 
 var cheerio = typeof require !== 'undefined' ? require('cheerio-without-node-native') : (globalThis.cheerio || {});
@@ -771,8 +771,10 @@ async function extractAbyss(url, langName = "Multi") {
           url: s.url,
           quality,
           headers: {
-            "Referer": "https://playhydrax.com/",
-            "Origin": "https://playhydrax.com",
+            // Hydrax CDN only serves bytes to clients coming from the abyssplayer
+            // embed origin — a playhydrax Referer gets a cf-cached 404.
+            "Referer": "https://player.abyssplayer.com/",
+            "Origin": "https://player.abyssplayer.com",
             "User-Agent": HEADERS["User-Agent"]
           },
           type: s.url.includes(".m3u8") ? "m3u8" : "mp4"
@@ -862,6 +864,10 @@ async function extractMultiLang(dataParam) {
  */
 
 const QUALITY_ORDER = { "4K": 6, "1440p": 5, "1080p": 4, "720p": 3, "480p": 2, "360p": 1, "Auto": 0 };
+
+// Keep only 1080p+ qualities. "Auto" is kept because HLS master playlists
+// have no explicit quality marker but typically include 1080p renditions.
+const HD_PLUS = new Set(["4K", "1440p", "1080p", "Auto"]);
 
 // Route table: first matching entry handles the iframe URL.
 // Each `run` returns an array of raw streams (post-normalisation).
@@ -1025,6 +1031,8 @@ async function getStreams(tmdbId, mediaType = "movie", seasonNum = 1, episodeNum
     const candidates = [];
     for (const s of rawStreams) {
       if (!s || !s.url || seenUrls.has(s.url) || !isRealStreamUrl(s.url)) continue;
+      const q = s.quality || "Auto";
+      if (!HD_PLUS.has(q)) continue;
       seenUrls.add(s.url);
       candidates.push({
         name: s.name || "AnimeSalt",

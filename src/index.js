@@ -30,6 +30,10 @@ const { extractAbyss } = require("./extractors/abyss");
 
 const QUALITY_ORDER = { "4K": 6, "1440p": 5, "1080p": 4, "720p": 3, "480p": 2, "360p": 1, "Auto": 0 };
 
+// Keep only 1080p+ qualities. "Auto" is kept because HLS master playlists
+// have no explicit quality marker but typically include 1080p renditions.
+const HD_PLUS = new Set(["4K", "1440p", "1080p", "Auto"]);
+
 // Route table: first matching entry handles the iframe URL.
 // Each `run` returns an array of raw streams (post-normalisation).
 const EXTRACTOR_ROUTES = [
@@ -192,6 +196,8 @@ async function getStreams(tmdbId, mediaType = "movie", seasonNum = 1, episodeNum
     const candidates = [];
     for (const s of rawStreams) {
       if (!s || !s.url || seenUrls.has(s.url) || !isRealStreamUrl(s.url)) continue;
+      const q = s.quality || "Auto";
+      if (!HD_PLUS.has(q)) continue;
       seenUrls.add(s.url);
       candidates.push({
         name: s.name || "AnimeSalt",
