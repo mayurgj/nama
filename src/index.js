@@ -55,7 +55,11 @@ const EXTRACTOR_ROUTES = [
   },
   {
     name: "awsstream",
-    match: (u) => u.includes("as-cdn") || u.includes("awstream") || u.includes("zephyrflick"),
+    match: (u) =>
+      u.includes("as-cdn") ||
+      u.includes("awstream") ||
+      u.includes("zephyrflick") ||
+      u.includes("ravok.buzz"),
     run: async (iframeUrl) => {
       const r = await extractAwsStream(iframeUrl);
       return r ? [r] : [];

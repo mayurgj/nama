@@ -2,7 +2,7 @@
  * AnimeSalt Nuvio Scraper Plugin
  * Compatible with Nuvio App (Mobile & Android TV) and All-in-One-Nuvio
  * Source: https://animesalt.cx/
- * Generated: 2026-10-24T14:57:23.007Z
+ * Generated: 2026-10-24T15:07:00.617Z
  */
 
 var cheerio = typeof require !== 'undefined' ? require('cheerio-without-node-native') : (globalThis.cheerio || {});
@@ -788,7 +788,11 @@ async function extractAbyss(url, langName = "Multi") {
 
 const LANG_ROUTES = [
   {
-    match: (u) => u.includes("as-cdn") || u.includes("awstream") || u.includes("zephyrflick"),
+    match: (u) =>
+      u.includes("as-cdn") ||
+      u.includes("awstream") ||
+      u.includes("zephyrflick") ||
+      u.includes("ravok.buzz"),
     run: async (link, lang) => {
       const s = await extractAwsStream(link, lang);
       return s ? [s] : [];
@@ -890,7 +894,11 @@ const EXTRACTOR_ROUTES = [
   },
   {
     name: "awsstream",
-    match: (u) => u.includes("as-cdn") || u.includes("awstream") || u.includes("zephyrflick"),
+    match: (u) =>
+      u.includes("as-cdn") ||
+      u.includes("awstream") ||
+      u.includes("zephyrflick") ||
+      u.includes("ravok.buzz"),
     run: async (iframeUrl) => {
       const r = await extractAwsStream(iframeUrl);
       return r ? [r] : [];

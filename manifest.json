@@ -1,7 +1,7 @@
 {
   "name": "Nama",
   "id": "nama",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Collection of local scrapers and streaming providers for movies, TV series, and anime in Nuvio",
   "author": "mayurgj",
   "scrapers": [
@@ -9,7 +9,7 @@
       "id": "animesalt",
       "name": "AnimeSalt",
       "description": "AnimeSalt anime & movie streaming with multi-language audio (Hindi, Tamil, Telugu, English) and high-quality direct HLS streams",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "mayurgj",
       "supportedTypes": [
         "movie",

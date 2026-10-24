@@ -6,7 +6,11 @@ const { extractAbyss } = require("./abyss");
 
 const LANG_ROUTES = [
   {
-    match: (u) => u.includes("as-cdn") || u.includes("awstream") || u.includes("zephyrflick"),
+    match: (u) =>
+      u.includes("as-cdn") ||
+      u.includes("awstream") ||
+      u.includes("zephyrflick") ||
+      u.includes("ravok.buzz"),
     run: async (link, lang) => {
       const s = await extractAwsStream(link, lang);
       return s ? [s] : [];
