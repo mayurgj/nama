@@ -2,7 +2,7 @@
  * AnimeSalt Nuvio Scraper Plugin
  * Compatible with Nuvio App (Mobile & Android TV) and All-in-One-Nuvio
  * Source: https://animesalt.cx/
- * Generated: 2026-10-24T15:37:48.675Z
+ * Generated: 2026-10-24T16:00:55.745Z
  */
 
 var cheerio = typeof require !== 'undefined' ? require('cheerio-without-node-native') : (globalThis.cheerio || {});
@@ -207,6 +207,19 @@ function parseHlsMaster(text, baseUrl) {
     out.push({ url: resolved, quality: heightToQuality(height), height, bandwidth });
   }
   return out;
+}
+
+/**
+ * Count EXT-X-MEDIA:TYPE=AUDIO entries in an HLS master. Signals that a
+ * player should be given the master URL (not a variant) so audio-track
+ * switching stays available in the native player UI.
+ * @param {string} text
+ * @returns {number}
+ */
+function hlsAudioTrackCount(text) {
+  if (!text || typeof text !== "string") return 0;
+  const matches = text.match(/#EXT-X-MEDIA:[^\n]*TYPE=AUDIO/gi);
+  return matches ? matches.length : 0;
 }
 
 /**
@@ -584,6 +597,8 @@ async function resolveEpisodeUrl(seriesUrl, seasonNum, episodeNum, showTitle) {
 }
 
 // --- Embed Extractors ---
+const QUALITY_RANK = { "4K": 6, "1440p": 5, "1080p": 4, "720p": 3, "480p": 2, "360p": 1, "240p": 0, "144p": 0 };
+
 /**
  * Extract streams from an as-cdn / awstream / zephyrflick / ravok embed.
  * Returns one Stream per HLS variant (1080p / 720p / ...). Audio is
@@ -639,14 +654,38 @@ async function extractAwsStream(url, _langName = "Multi") {
     const subtitles = subtitle ? [{ lang: "English", url: subtitle }] : [];
 
     let variants = [];
+    let audioCount = 0;
     try {
       const masterRes = await fetch(master, { headers: commonHeaders });
       if (masterRes.ok) {
         const body = await masterRes.text();
         variants = parseHlsMaster(body, master);
+        audioCount = hlsAudioTrackCount(body);
       }
     } catch (e) {
       warn("extractor:awsstream:master", e);
+    }
+
+    // When the master lists multiple audio tracks, serve the master URL
+    // (not a variant) so the player keeps the audio-track switcher.
+    // Variant playlists reference the master's EXT-X-MEDIA entries;
+    // handing the player a variant hides them.
+    if (audioCount >= 2) {
+      const topQuality = variants.length
+        ? variants
+            .map((v) => v.quality)
+            .reduce((a, b) => ((QUALITY_RANK[a] ?? -1) >= (QUALITY_RANK[b] ?? -1) ? a : b))
+        : parseQualityFromUrl(master, "Auto");
+      return [
+        {
+          name: `AnimeSalt • AWSStream • ${topQuality} • Multi`,
+          url: master,
+          quality: topQuality,
+          headers: commonHeaders,
+          subtitles,
+          type: "m3u8"
+        }
+      ];
     }
 
     if (variants.length === 0) {

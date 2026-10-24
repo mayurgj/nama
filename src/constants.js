@@ -199,6 +199,19 @@ function parseHlsMaster(text, baseUrl) {
 }
 
 /**
+ * Count EXT-X-MEDIA:TYPE=AUDIO entries in an HLS master. Signals that a
+ * player should be given the master URL (not a variant) so audio-track
+ * switching stays available in the native player UI.
+ * @param {string} text
+ * @returns {number}
+ */
+function hlsAudioTrackCount(text) {
+  if (!text || typeof text !== "string") return 0;
+  const matches = text.match(/#EXT-X-MEDIA:[^\n]*TYPE=AUDIO/gi);
+  return matches ? matches.length : 0;
+}
+
+/**
  * True iff `url` looks like a direct playable media URL (not an embed page).
  * @param {unknown} url
  * @returns {boolean}
@@ -253,5 +266,6 @@ module.exports = {
   parseQualityFromUrl,
   heightToQuality,
   parseHlsMaster,
+  hlsAudioTrackCount,
   isRealStreamUrl
 };

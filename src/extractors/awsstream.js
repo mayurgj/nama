@@ -1,4 +1,13 @@
-const { HEADERS, unpack, parseQualityFromUrl, parseHlsMaster, warn } = require("../constants");
+const {
+  HEADERS,
+  unpack,
+  parseQualityFromUrl,
+  parseHlsMaster,
+  hlsAudioTrackCount,
+  warn
+} = require("../constants");
+
+const QUALITY_RANK = { "4K": 6, "1440p": 5, "1080p": 4, "720p": 3, "480p": 2, "360p": 1, "240p": 0, "144p": 0 };
 
 /**
  * Extract streams from an as-cdn / awstream / zephyrflick / ravok embed.
@@ -55,14 +64,38 @@ async function extractAwsStream(url, _langName = "Multi") {
     const subtitles = subtitle ? [{ lang: "English", url: subtitle }] : [];
 
     let variants = [];
+    let audioCount = 0;
     try {
       const masterRes = await fetch(master, { headers: commonHeaders });
       if (masterRes.ok) {
         const body = await masterRes.text();
         variants = parseHlsMaster(body, master);
+        audioCount = hlsAudioTrackCount(body);
       }
     } catch (e) {
       warn("extractor:awsstream:master", e);
+    }
+
+    // When the master lists multiple audio tracks, serve the master URL
+    // (not a variant) so the player keeps the audio-track switcher.
+    // Variant playlists reference the master's EXT-X-MEDIA entries;
+    // handing the player a variant hides them.
+    if (audioCount >= 2) {
+      const topQuality = variants.length
+        ? variants
+            .map((v) => v.quality)
+            .reduce((a, b) => ((QUALITY_RANK[a] ?? -1) >= (QUALITY_RANK[b] ?? -1) ? a : b))
+        : parseQualityFromUrl(master, "Auto");
+      return [
+        {
+          name: `AnimeSalt • AWSStream • ${topQuality} • Multi`,
+          url: master,
+          quality: topQuality,
+          headers: commonHeaders,
+          subtitles,
+          type: "m3u8"
+        }
+      ];
     }
 
     if (variants.length === 0) {

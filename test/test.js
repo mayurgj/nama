@@ -91,7 +91,8 @@ const {
   validateEpisodeInput,
   parseQualityFromUrl,
   heightToQuality,
-  parseHlsMaster
+  parseHlsMaster,
+  hlsAudioTrackCount
 } = require("../src/constants");
 
 test("cleanTitle strips punctuation and lowercases", () => {
@@ -180,6 +181,18 @@ test("parseHlsMaster extracts variants and carries master query", () => {
 test("parseHlsMaster returns [] for empty or non-string input", () => {
   assert.deepStrictEqual(parseHlsMaster("", "https://x/m.m3u8"), []);
   assert.deepStrictEqual(parseHlsMaster(null, "https://x/m.m3u8"), []);
+});
+
+test("hlsAudioTrackCount counts EXT-X-MEDIA audio entries", () => {
+  const body = [
+    "#EXTM3U",
+    "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"English\"",
+    "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"Hindi\"",
+    "#EXT-X-MEDIA:TYPE=SUBTITLES,NAME=\"English\""
+  ].join("\n");
+  assert.strictEqual(hlsAudioTrackCount(body), 2);
+  assert.strictEqual(hlsAudioTrackCount(""), 0);
+  assert.strictEqual(hlsAudioTrackCount(null), 0);
 });
 
 test("parseQualityFromUrl recognises common markers", () => {
