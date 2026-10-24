@@ -21,10 +21,11 @@ async function extractStreamWish(url, langName = "Multi") {
     if (!fileMatch) return null;
 
     const origin = new URL(embedUrl).origin;
+    const quality = parseQualityFromUrl(fileMatch[1], "Auto");
     return {
-      name: `AnimeSalt [StreamWish] [${langName}]`,
+      name: `AnimeSalt • StreamWish • ${quality} • ${langName}`,
       url: fileMatch[1],
-      quality: parseQualityFromUrl(fileMatch[1], "Auto"),
+      quality,
       headers: {
         "Referer": `${origin}/`,
         "Origin": origin,

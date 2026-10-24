@@ -82,11 +82,12 @@ async function extractMegaPlay(url, langName = "Multi") {
       .filter((t) => t.file && t.kind !== "thumbnails")
       .map((t) => ({ lang: t.label || "English", url: t.file }));
 
+    const quality = parseQualityFromUrl(file, "Auto");
     return [
       {
-        name: `AnimeSalt [MegaPlay] [${langName}]`,
+        name: `AnimeSalt • MegaPlay • ${quality} • ${langName}`,
         url: file,
-        quality: parseQualityFromUrl(file, "Auto"),
+        quality,
         headers: {
           "Referer": `${origin}/`,
           "Origin": origin,

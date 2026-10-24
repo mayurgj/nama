@@ -44,10 +44,11 @@ async function extractAwsStream(url, langName = "Multi") {
       }
     }
 
+    const quality = parseQualityFromUrl(m3u8, "Auto");
     return {
-      name: `AnimeSalt [AWSStream] [${langName}]`,
+      name: `AnimeSalt • AWSStream • ${quality} • ${langName}`,
       url: m3u8,
-      quality: parseQualityFromUrl(m3u8, "Auto"),
+      quality,
       headers: {
         "Referer": `${origin}/`,
         "Origin": origin,

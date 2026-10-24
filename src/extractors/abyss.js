@@ -39,10 +39,9 @@ async function extractAbyss(url, langName = "Multi") {
     return sources
       .filter((s) => s && s.url && s.status)
       .map((s) => {
-        const codec = (s.codec || "MP4").toUpperCase();
         const quality = s.type || "720p";
         return {
-          name: `AnimeSalt [Abyss] [${langName}] (${codec} ${quality})`,
+          name: `AnimeSalt • Abyss • ${quality} • ${langName}`,
           url: s.url,
           quality,
           headers: {

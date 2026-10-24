@@ -2,7 +2,7 @@
  * AnimeSalt Nuvio Scraper Plugin
  * Compatible with Nuvio App (Mobile & Android TV) and All-in-One-Nuvio
  * Source: https://animesalt.cx/
- * Generated: 2026-10-24T15:07:00.617Z
+ * Generated: 2026-10-24T15:25:15.856Z
  */
 
 var cheerio = typeof require !== 'undefined' ? require('cheerio-without-node-native') : (globalThis.cheerio || {});
@@ -569,10 +569,11 @@ async function extractAwsStream(url, langName = "Multi") {
       }
     }
 
+    const quality = parseQualityFromUrl(m3u8, "Auto");
     return {
-      name: `AnimeSalt [AWSStream] [${langName}]`,
+      name: `AnimeSalt • AWSStream • ${quality} • ${langName}`,
       url: m3u8,
-      quality: parseQualityFromUrl(m3u8, "Auto"),
+      quality,
       headers: {
         "Referer": `${origin}/`,
         "Origin": origin,
@@ -608,10 +609,11 @@ async function extractStreamWish(url, langName = "Multi") {
     if (!fileMatch) return null;
 
     const origin = new URL(embedUrl).origin;
+    const quality = parseQualityFromUrl(fileMatch[1], "Auto");
     return {
-      name: `AnimeSalt [StreamWish] [${langName}]`,
+      name: `AnimeSalt • StreamWish • ${quality} • ${langName}`,
       url: fileMatch[1],
-      quality: parseQualityFromUrl(fileMatch[1], "Auto"),
+      quality,
       headers: {
         "Referer": `${origin}/`,
         "Origin": origin,
@@ -705,11 +707,12 @@ async function extractMegaPlay(url, langName = "Multi") {
       .filter((t) => t.file && t.kind !== "thumbnails")
       .map((t) => ({ lang: t.label || "English", url: t.file }));
 
+    const quality = parseQualityFromUrl(file, "Auto");
     return [
       {
-        name: `AnimeSalt [MegaPlay] [${langName}]`,
+        name: `AnimeSalt • MegaPlay • ${quality} • ${langName}`,
         url: file,
-        quality: parseQualityFromUrl(file, "Auto"),
+        quality,
         headers: {
           "Referer": `${origin}/`,
           "Origin": origin,
@@ -764,10 +767,9 @@ async function extractAbyss(url, langName = "Multi") {
     return sources
       .filter((s) => s && s.url && s.status)
       .map((s) => {
-        const codec = (s.codec || "MP4").toUpperCase();
         const quality = s.type || "720p";
         return {
-          name: `AnimeSalt [Abyss] [${langName}] (${codec} ${quality})`,
+          name: `AnimeSalt • Abyss • ${quality} • ${langName}`,
           url: s.url,
           quality,
           headers: {
