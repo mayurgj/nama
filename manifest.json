@@ -1,0 +1,34 @@
+{
+  "name": "Nama",
+  "id": "nama",
+  "version": "1.0.0",
+  "description": "Collection of local scrapers and streaming providers for movies, TV series, and anime in Nuvio",
+  "author": "mayurgj",
+  "scrapers": [
+    {
+      "id": "animesalt",
+      "name": "AnimeSalt",
+      "description": "AnimeSalt anime & movie streaming with multi-language audio (Hindi, Tamil, Telugu, English) and high-quality direct HLS streams",
+      "version": "1.0.0",
+      "author": "mayurgj",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/animesalt.js",
+      "enabled": true,
+      "formats": [
+        "m3u8",
+        "mp4"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=animesalt.cx&sz=128",
+      "contentLanguage": [
+        "hi",
+        "ta",
+        "te",
+        "en",
+        "ja"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "nama",
+  "version": "1.0.0",
+  "description": "Nama — stream scrapers for the Nuvio streaming application. Named after the Greek νᾶμα (stream).",
+  "main": "manifest.json",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node test/test.js"
+  },
+  "keywords": [
+    "nama",
+    "nuvio",
+    "nuvio-plugin",
+    "scraper",
+    "streaming"
+  ],
+  "author": "mayurgj",
+  "license": "MIT",
+  "dependencies": {
+    "cheerio-without-node-native": "^0.20.2",
+    "crypto-js": "^4.2.0"
+  }
+}
