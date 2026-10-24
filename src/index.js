@@ -35,7 +35,8 @@ const QUALITY_ORDER = { "4K": 6, "1440p": 5, "1080p": 4, "720p": 3, "480p": 2, "
 const EXTRACTOR_ROUTES = [
   {
     name: "multilang",
-    match: (u) => u.includes("multi-lang-plyr/player.php"),
+    // Covers both ToroFilm variants: /plyr/player.php?data=... and /multi-lang-plyr/player.php?data=...
+    match: (u) => /\/(?:multi-lang-)?plyr\/player\.php\?/.test(u),
     run: async (iframeUrl) => {
       try {
         const dataParam = new URL(iframeUrl).searchParams.get("data");

@@ -35,7 +35,7 @@ async function extractAwsStream(url, langName = "Multi") {
     if (!m3u8) return null;
 
     let subtitle = null;
-    const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)\)/);
+    const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)/);
     if (packedMatch) {
       const unpacked = unpack(packedMatch[0]);
       const subMatch = unpacked.match(/"kind":\s*"captions"\s*,\s*"file":\s*"(https?:\/\/[^"]+)"/);

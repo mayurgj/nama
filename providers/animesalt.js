@@ -2,7 +2,7 @@
  * AnimeSalt Nuvio Scraper Plugin
  * Compatible with Nuvio App (Mobile & Android TV) and All-in-One-Nuvio
  * Source: https://animesalt.cx/
- * Generated: 2026-10-24T14:24:10.265Z
+ * Generated: 2026-10-24T14:47:54.118Z
  */
 
 var cheerio = typeof require !== 'undefined' ? require('cheerio-without-node-native') : (globalThis.cheerio || {});
@@ -560,7 +560,7 @@ async function extractAwsStream(url, langName = "Multi") {
     if (!m3u8) return null;
 
     let subtitle = null;
-    const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)\)/);
+    const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)/);
     if (packedMatch) {
       const unpacked = unpack(packedMatch[0]);
       const subMatch = unpacked.match(/"kind":\s*"captions"\s*,\s*"file":\s*"(https?:\/\/[^"]+)"/);
@@ -600,7 +600,7 @@ async function extractStreamWish(url, langName = "Multi") {
     if (!res.ok) return null;
     const html = await res.text();
 
-    const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)\)/);
+    const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)/);
     if (!packedMatch) return null;
 
     const unpacked = unpack(packedMatch[0]);
@@ -868,7 +868,8 @@ const QUALITY_ORDER = { "4K": 6, "1440p": 5, "1080p": 4, "720p": 3, "480p": 2, "
 const EXTRACTOR_ROUTES = [
   {
     name: "multilang",
-    match: (u) => u.includes("multi-lang-plyr/player.php"),
+    // Covers both ToroFilm variants: /plyr/player.php?data=... and /multi-lang-plyr/player.php?data=...
+    match: (u) => /\/(?:multi-lang-)?plyr\/player\.php\?/.test(u),
     run: async (iframeUrl) => {
       try {
         const dataParam = new URL(iframeUrl).searchParams.get("data");

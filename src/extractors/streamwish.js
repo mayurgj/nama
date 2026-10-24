@@ -13,7 +13,7 @@ async function extractStreamWish(url, langName = "Multi") {
     if (!res.ok) return null;
     const html = await res.text();
 
-    const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)\)/);
+    const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)/);
     if (!packedMatch) return null;
 
     const unpacked = unpack(packedMatch[0]);
