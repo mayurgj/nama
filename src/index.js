@@ -14,7 +14,6 @@ const { extractMultiLang } = require("./extractors/multilang");
 const { extractAwsStream } = require("./extractors/awsstream");
 const { extractMegaPlay } = require("./extractors/megaplay");
 const { extractStreamWish } = require("./extractors/streamwish");
-const { extractAbyss } = require("./extractors/abyss");
 
 /**
  * @typedef {Object} Stream
@@ -62,14 +61,6 @@ const EXTRACTOR_ROUTES = [
       u.includes("ravok.buzz"),
     run: async (iframeUrl) => {
       const r = await extractAwsStream(iframeUrl);
-      return r ? [r] : [];
-    }
-  },
-  {
-    name: "abyss",
-    match: (u) => u.includes("abyssplayer.com") || u.includes("short.icu"),
-    run: async (iframeUrl) => {
-      const r = await extractAbyss(iframeUrl);
       return Array.isArray(r) ? r : [];
     }
   },

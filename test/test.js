@@ -89,7 +89,9 @@ const {
   isRealStreamUrl,
   joinUrl,
   validateEpisodeInput,
-  parseQualityFromUrl
+  parseQualityFromUrl,
+  heightToQuality,
+  parseHlsMaster
 } = require("../src/constants");
 
 test("cleanTitle strips punctuation and lowercases", () => {
@@ -148,6 +150,38 @@ test("validateEpisodeInput accepts positive ints and rejects garbage", () => {
   assert.strictEqual(validateEpisodeInput(10000, 1), null);
 });
 
+test("heightToQuality maps pixel heights to labels", () => {
+  assert.strictEqual(heightToQuality(2160), "4K");
+  assert.strictEqual(heightToQuality(1440), "1440p");
+  assert.strictEqual(heightToQuality(1080), "1080p");
+  assert.strictEqual(heightToQuality(720), "720p");
+  assert.strictEqual(heightToQuality(480), "480p");
+  assert.strictEqual(heightToQuality(240), "240p");
+  assert.strictEqual(heightToQuality(0), "Auto");
+  assert.strictEqual(heightToQuality(NaN), "Auto");
+});
+
+test("parseHlsMaster extracts variants and carries master query", () => {
+  const master = "https://cdn.example/hls/abc/master.m3u8?md5=TOKEN&expires=99";
+  const body = [
+    "#EXTM3U",
+    "#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080",
+    "1080/index.m3u8",
+    "#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720",
+    "720/index.m3u8"
+  ].join("\n");
+  const variants = parseHlsMaster(body, master);
+  assert.strictEqual(variants.length, 2);
+  assert.strictEqual(variants[0].quality, "1080p");
+  assert.ok(variants[0].url.endsWith("1080/index.m3u8?md5=TOKEN&expires=99"));
+  assert.strictEqual(variants[1].quality, "720p");
+});
+
+test("parseHlsMaster returns [] for empty or non-string input", () => {
+  assert.deepStrictEqual(parseHlsMaster("", "https://x/m.m3u8"), []);
+  assert.deepStrictEqual(parseHlsMaster(null, "https://x/m.m3u8"), []);
+});
+
 test("parseQualityFromUrl recognises common markers", () => {
   assert.strictEqual(parseQualityFromUrl("https://x/stream/1080p/index.m3u8"), "1080p");
   assert.strictEqual(parseQualityFromUrl("https://x/stream/720/index.m3u8"), "720p");
@@ -180,7 +214,6 @@ section("extractors (mocked)");
 const { extractStreamWish } = require("../src/extractors/streamwish");
 const { extractMegaPlay } = require("../src/extractors/megaplay");
 const { extractAwsStream } = require("../src/extractors/awsstream");
-const { extractAbyss } = require("../src/extractors/abyss");
 
 test("extractStreamWish returns null when response is not ok", () =>
   withFetch(() => mockRes({ ok: false, status: 404 }), async () => {
@@ -200,7 +233,7 @@ test("extractMegaPlay returns [] on initial fetch failure", () =>
     assert.deepStrictEqual(r, []);
   }));
 
-test("extractAwsStream returns null when postUrl response is not ok", () => {
+test("extractAwsStream returns [] when postUrl response is not ok", () => {
   let call = 0;
   return withFetch(() => {
     call++;
@@ -208,20 +241,14 @@ test("extractAwsStream returns null when postUrl response is not ok", () => {
     return mockRes({ ok: false, status: 500 });
   }, async () => {
     const r = await extractAwsStream("https://as-cdn.example/player/abc123");
-    assert.strictEqual(r, null);
+    assert.deepStrictEqual(r, []);
   });
 });
-
-test("extractAbyss returns [] when datas marker is absent", () =>
-  withFetch(() => mockRes({ ok: true, body: "<html>no datas here</html>" }), async () => {
-    const r = await extractAbyss("https://abyssplayer.com/v/x");
-    assert.deepStrictEqual(r, []);
-  }));
 
 test("extractAwsStream handles network errors gracefully", () =>
   withFetch(() => { throw new Error("network"); }, async () => {
     const r = await extractAwsStream("https://as-cdn.example/player/abc123");
-    assert.strictEqual(r, null);
+    assert.deepStrictEqual(r, []);
   }));
 
 // ---------- 5. getStreams input validation ----------

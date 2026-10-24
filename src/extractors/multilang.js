@@ -2,7 +2,6 @@ const { warn } = require("../constants");
 const { extractAwsStream } = require("./awsstream");
 const { extractStreamWish } = require("./streamwish");
 const { extractMegaPlay } = require("./megaplay");
-const { extractAbyss } = require("./abyss");
 
 const LANG_ROUTES = [
   {
@@ -11,14 +10,7 @@ const LANG_ROUTES = [
       u.includes("awstream") ||
       u.includes("zephyrflick") ||
       u.includes("ravok.buzz"),
-    run: async (link, lang) => {
-      const s = await extractAwsStream(link, lang);
-      return s ? [s] : [];
-    }
-  },
-  {
-    match: (u) => u.includes("abyssplayer.com") || u.includes("short.icu"),
-    run: (link, lang) => extractAbyss(link, lang)
+    run: (link, lang) => extractAwsStream(link, lang)
   },
   {
     match: (u) => u.includes("megaplay.buzz") || u.includes("rapid-cloud.co"),
@@ -59,9 +51,9 @@ async function extractMultiLang(dataParam) {
       const link = item.link;
       if (!link) return [];
       const route = LANG_ROUTES.find((r) => r.match(link));
-      if (route) return route.run(link, lang);
-      // Last-ditch: try Abyss as a generic fallback (matches historical behaviour).
-      return extractAbyss(link, lang);
+      if (!route) return [];
+      const res = await route.run(link, lang);
+      return Array.isArray(res) ? res : [];
     });
 
     const results = await Promise.all(streamPromises);

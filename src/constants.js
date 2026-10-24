@@ -141,6 +141,64 @@ function parseQualityFromUrl(url, fallback = "Auto") {
 }
 
 /**
+ * Map an HLS variant's pixel height to our quality label.
+ * @param {number} height
+ * @returns {string}
+ */
+function heightToQuality(height) {
+  if (!Number.isFinite(height) || height <= 0) return "Auto";
+  if (height >= 2160) return "4K";
+  if (height >= 1440) return "1440p";
+  if (height >= 1080) return "1080p";
+  if (height >= 720) return "720p";
+  if (height >= 480) return "480p";
+  if (height >= 360) return "360p";
+  if (height >= 240) return "240p";
+  return "144p";
+}
+
+/**
+ * Parse an HLS master playlist into a list of variant streams. Resolves
+ * relative variant URLs against the master URL and carries forward the
+ * master's query string when the variant has none — most signed-URL
+ * schemes (CloudFront, Hydrax-style) need the token re-attached.
+ * @param {string} text    Master playlist body
+ * @param {string} baseUrl Master playlist URL (for relative resolution)
+ * @returns {Array<{url: string, quality: string, height: number, bandwidth: number}>}
+ */
+function parseHlsMaster(text, baseUrl) {
+  if (!text || typeof text !== "string") return [];
+  const lines = text.split(/\r?\n/);
+  const out = [];
+  let masterQuery = "";
+  try {
+    masterQuery = new URL(baseUrl).search || "";
+  } catch (_) {
+    /* ignore */
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line || !line.startsWith("#EXT-X-STREAM-INF:")) continue;
+    let urlLine = (lines[i + 1] || "").trim();
+    if (!urlLine || urlLine.startsWith("#")) continue;
+    const resMatch = line.match(/RESOLUTION=(\d+)x(\d+)/i);
+    if (!resMatch) continue;
+    const bwMatch = line.match(/BANDWIDTH=(\d+)/i);
+    const height = parseInt(resMatch[2], 10);
+    const bandwidth = bwMatch ? parseInt(bwMatch[1], 10) : 0;
+    let resolved;
+    try {
+      resolved = new URL(urlLine, baseUrl).toString();
+    } catch (_) {
+      continue;
+    }
+    if (masterQuery && !resolved.includes("?")) resolved += masterQuery;
+    out.push({ url: resolved, quality: heightToQuality(height), height, bandwidth });
+  }
+  return out;
+}
+
+/**
  * True iff `url` looks like a direct playable media URL (not an embed page).
  * @param {unknown} url
  * @returns {boolean}
@@ -174,9 +232,10 @@ function isRealStreamUrl(url) {
   ) {
     return false;
   }
-  const isHls = lowercase.includes(".m3u8");
+  const isHls = lowercase.includes(".m3u8") || lowercase.includes("/hls/");
   const isMp4 = lowercase.includes(".mp4") || lowercase.includes("/sora/") || lowercase.includes("/stream/");
-  return isHls || isMp4 || lowercase.includes(".mkv") || lowercase.includes(".mpd");
+  const isDash = lowercase.includes(".mpd") || lowercase.includes("/dash/");
+  return isHls || isMp4 || isDash || lowercase.includes(".mkv");
 }
 
 module.exports = {
@@ -192,5 +251,7 @@ module.exports = {
   joinUrl,
   validateEpisodeInput,
   parseQualityFromUrl,
+  heightToQuality,
+  parseHlsMaster,
   isRealStreamUrl
 };

@@ -18,7 +18,6 @@ const episodesCode = fs.readFileSync(path.join(SRC, "episodes.js"), "utf8");
 const awsstreamCode = fs.readFileSync(path.join(SRC, "extractors", "awsstream.js"), "utf8");
 const streamwishCode = fs.readFileSync(path.join(SRC, "extractors", "streamwish.js"), "utf8");
 const megaplayCode = fs.readFileSync(path.join(SRC, "extractors", "megaplay.js"), "utf8");
-const abyssCode = fs.readFileSync(path.join(SRC, "extractors", "abyss.js"), "utf8");
 const multilangCode = fs.readFileSync(path.join(SRC, "extractors", "multilang.js"), "utf8");
 const indexCode = fs.readFileSync(path.join(SRC, "index.js"), "utf8");
 
@@ -59,8 +58,6 @@ ${stripCommonJs(awsstreamCode)}
 ${stripCommonJs(streamwishCode)}
 
 ${stripCommonJs(megaplayCode)}
-
-${stripCommonJs(abyssCode)}
 
 ${stripCommonJs(multilangCode)}
 

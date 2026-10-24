@@ -2,7 +2,7 @@
  * AnimeSalt Nuvio Scraper Plugin
  * Compatible with Nuvio App (Mobile & Android TV) and All-in-One-Nuvio
  * Source: https://animesalt.cx/
- * Generated: 2026-10-24T15:25:15.856Z
+ * Generated: 2026-10-24T15:37:48.675Z
  */
 
 var cheerio = typeof require !== 'undefined' ? require('cheerio-without-node-native') : (globalThis.cheerio || {});
@@ -152,6 +152,64 @@ function parseQualityFromUrl(url, fallback = "Auto") {
 }
 
 /**
+ * Map an HLS variant's pixel height to our quality label.
+ * @param {number} height
+ * @returns {string}
+ */
+function heightToQuality(height) {
+  if (!Number.isFinite(height) || height <= 0) return "Auto";
+  if (height >= 2160) return "4K";
+  if (height >= 1440) return "1440p";
+  if (height >= 1080) return "1080p";
+  if (height >= 720) return "720p";
+  if (height >= 480) return "480p";
+  if (height >= 360) return "360p";
+  if (height >= 240) return "240p";
+  return "144p";
+}
+
+/**
+ * Parse an HLS master playlist into a list of variant streams. Resolves
+ * relative variant URLs against the master URL and carries forward the
+ * master's query string when the variant has none — most signed-URL
+ * schemes (CloudFront, Hydrax-style) need the token re-attached.
+ * @param {string} text    Master playlist body
+ * @param {string} baseUrl Master playlist URL (for relative resolution)
+ * @returns {Array<{url: string, quality: string, height: number, bandwidth: number}>}
+ */
+function parseHlsMaster(text, baseUrl) {
+  if (!text || typeof text !== "string") return [];
+  const lines = text.split(/\r?\n/);
+  const out = [];
+  let masterQuery = "";
+  try {
+    masterQuery = new URL(baseUrl).search || "";
+  } catch (_) {
+    /* ignore */
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line || !line.startsWith("#EXT-X-STREAM-INF:")) continue;
+    let urlLine = (lines[i + 1] || "").trim();
+    if (!urlLine || urlLine.startsWith("#")) continue;
+    const resMatch = line.match(/RESOLUTION=(\d+)x(\d+)/i);
+    if (!resMatch) continue;
+    const bwMatch = line.match(/BANDWIDTH=(\d+)/i);
+    const height = parseInt(resMatch[2], 10);
+    const bandwidth = bwMatch ? parseInt(bwMatch[1], 10) : 0;
+    let resolved;
+    try {
+      resolved = new URL(urlLine, baseUrl).toString();
+    } catch (_) {
+      continue;
+    }
+    if (masterQuery && !resolved.includes("?")) resolved += masterQuery;
+    out.push({ url: resolved, quality: heightToQuality(height), height, bandwidth });
+  }
+  return out;
+}
+
+/**
  * True iff `url` looks like a direct playable media URL (not an embed page).
  * @param {unknown} url
  * @returns {boolean}
@@ -185,9 +243,10 @@ function isRealStreamUrl(url) {
   ) {
     return false;
   }
-  const isHls = lowercase.includes(".m3u8");
+  const isHls = lowercase.includes(".m3u8") || lowercase.includes("/hls/");
   const isMp4 = lowercase.includes(".mp4") || lowercase.includes("/sora/") || lowercase.includes("/stream/");
-  return isHls || isMp4 || lowercase.includes(".mkv") || lowercase.includes(".mpd");
+  const isDash = lowercase.includes(".mpd") || lowercase.includes("/dash/");
+  return isHls || isMp4 || isDash || lowercase.includes(".mkv");
 }
 
 // --- TMDB Resolver ---
@@ -526,19 +585,22 @@ async function resolveEpisodeUrl(seriesUrl, seasonNum, episodeNum, showTitle) {
 
 // --- Embed Extractors ---
 /**
- * Extract a stream from an as-cdn / awstream / zephyrflick embed.
+ * Extract streams from an as-cdn / awstream / zephyrflick / ravok embed.
+ * Returns one Stream per HLS variant (1080p / 720p / ...). Audio is
+ * always labelled "Multi" because the master playlist typically
+ * includes multiple audio tracks that the player picks between.
  * @param {string} url
- * @param {string} [langName]
- * @returns {Promise<import("../index").Stream | null>}
+ * @param {string} [_langName] Ignored — kept for route-table parity.
+ * @returns {Promise<Array<import("../index").Stream>>}
  */
-async function extractAwsStream(url, langName = "Multi") {
+async function extractAwsStream(url, _langName = "Multi") {
   try {
     const hash = url.split("/").filter(Boolean).pop();
-    if (!hash) return null;
+    if (!hash) return [];
     const origin = new URL(url).origin;
 
     const res = await fetch(url, { headers: HEADERS });
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const html = await res.text();
 
     const postUrl = `${origin}/player/index.php?data=${hash}&do=getVideo`;
@@ -554,10 +616,10 @@ async function extractAwsStream(url, langName = "Multi") {
       body: `hash=${encodeURIComponent(hash)}&r=${encodeURIComponent(origin)}`
     });
 
-    if (!postRes.ok) return null;
+    if (!postRes.ok) return [];
     const json = await postRes.json();
-    const m3u8 = json?.videoSource;
-    if (!m3u8) return null;
+    const master = json?.videoSource;
+    if (!master) return [];
 
     let subtitle = null;
     const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\.split\(['"]\|['"]\)/);
@@ -569,22 +631,48 @@ async function extractAwsStream(url, langName = "Multi") {
       }
     }
 
-    const quality = parseQualityFromUrl(m3u8, "Auto");
-    return {
-      name: `AnimeSalt • AWSStream • ${quality} • ${langName}`,
-      url: m3u8,
-      quality,
-      headers: {
-        "Referer": `${origin}/`,
-        "Origin": origin,
-        "User-Agent": HEADERS["User-Agent"]
-      },
-      subtitles: subtitle ? [{ lang: "English", url: subtitle }] : [],
-      type: "m3u8"
+    const commonHeaders = {
+      "Referer": `${origin}/`,
+      "Origin": origin,
+      "User-Agent": HEADERS["User-Agent"]
     };
+    const subtitles = subtitle ? [{ lang: "English", url: subtitle }] : [];
+
+    let variants = [];
+    try {
+      const masterRes = await fetch(master, { headers: commonHeaders });
+      if (masterRes.ok) {
+        const body = await masterRes.text();
+        variants = parseHlsMaster(body, master);
+      }
+    } catch (e) {
+      warn("extractor:awsstream:master", e);
+    }
+
+    if (variants.length === 0) {
+      return [
+        {
+          name: `AnimeSalt • AWSStream • ${parseQualityFromUrl(master, "Auto")} • Multi`,
+          url: master,
+          quality: parseQualityFromUrl(master, "Auto"),
+          headers: commonHeaders,
+          subtitles,
+          type: "m3u8"
+        }
+      ];
+    }
+
+    return variants.map((v) => ({
+      name: `AnimeSalt • AWSStream • ${v.quality} • Multi`,
+      url: v.url,
+      quality: v.quality,
+      headers: commonHeaders,
+      subtitles,
+      type: "m3u8"
+    }));
   } catch (e) {
     warn("extractor:awsstream", e);
-    return null;
+    return [];
   }
 }
 
@@ -728,66 +816,6 @@ async function extractMegaPlay(url, langName = "Multi") {
   }
 }
 
-/**
- * Extract streams from an abyssplayer.com / short.icu embed. The embed ships
- * encrypted source data; decryption is delegated to a public helper service.
- * @param {string} url
- * @param {string} [langName]
- * @returns {Promise<Array<import("../index").Stream>>}
- */
-async function extractAbyss(url, langName = "Multi") {
-  try {
-    const cleanUrl = url.replace("https://short.icu", "https://abyssplayer.com");
-    const reqHeaders = {
-      "User-Agent": HEADERS["User-Agent"],
-      "Origin": "https://playhydrax.com",
-      "Referer": "https://playhydrax.com/"
-    };
-
-    const res = await fetch(cleanUrl, { headers: reqHeaders });
-    if (!res.ok) return [];
-    const html = await res.text();
-
-    const match = html.match(/const\s+datas\s*=\s*"([^"]*)"/);
-    if (!match || !match[1]) return [];
-
-    const decRes = await fetch("https://enc-dec.app/api/dec-abyss", {
-      method: "POST",
-      headers: {
-        ...reqHeaders,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ text: match[1] })
-    });
-
-    if (!decRes.ok) return [];
-    const decData = await decRes.json();
-    const sources = decData?.result?.sources || [];
-
-    return sources
-      .filter((s) => s && s.url && s.status)
-      .map((s) => {
-        const quality = s.type || "720p";
-        return {
-          name: `AnimeSalt • Abyss • ${quality} • ${langName}`,
-          url: s.url,
-          quality,
-          headers: {
-            // Hydrax CDN only serves bytes to clients coming from the abyssplayer
-            // embed origin — a playhydrax Referer gets a cf-cached 404.
-            "Referer": "https://player.abyssplayer.com/",
-            "Origin": "https://player.abyssplayer.com",
-            "User-Agent": HEADERS["User-Agent"]
-          },
-          type: s.url.includes(".m3u8") ? "m3u8" : "mp4"
-        };
-      });
-  } catch (e) {
-    warn("extractor:abyss", e);
-    return [];
-  }
-}
-
 const LANG_ROUTES = [
   {
     match: (u) =>
@@ -795,14 +823,7 @@ const LANG_ROUTES = [
       u.includes("awstream") ||
       u.includes("zephyrflick") ||
       u.includes("ravok.buzz"),
-    run: async (link, lang) => {
-      const s = await extractAwsStream(link, lang);
-      return s ? [s] : [];
-    }
-  },
-  {
-    match: (u) => u.includes("abyssplayer.com") || u.includes("short.icu"),
-    run: (link, lang) => extractAbyss(link, lang)
+    run: (link, lang) => extractAwsStream(link, lang)
   },
   {
     match: (u) => u.includes("megaplay.buzz") || u.includes("rapid-cloud.co"),
@@ -843,9 +864,9 @@ async function extractMultiLang(dataParam) {
       const link = item.link;
       if (!link) return [];
       const route = LANG_ROUTES.find((r) => r.match(link));
-      if (route) return route.run(link, lang);
-      // Last-ditch: try Abyss as a generic fallback (matches historical behaviour).
-      return extractAbyss(link, lang);
+      if (!route) return [];
+      const res = await route.run(link, lang);
+      return Array.isArray(res) ? res : [];
     });
 
     const results = await Promise.all(streamPromises);
@@ -903,14 +924,6 @@ const EXTRACTOR_ROUTES = [
       u.includes("ravok.buzz"),
     run: async (iframeUrl) => {
       const r = await extractAwsStream(iframeUrl);
-      return r ? [r] : [];
-    }
-  },
-  {
-    name: "abyss",
-    match: (u) => u.includes("abyssplayer.com") || u.includes("short.icu"),
-    run: async (iframeUrl) => {
-      const r = await extractAbyss(iframeUrl);
       return Array.isArray(r) ? r : [];
     }
   },
