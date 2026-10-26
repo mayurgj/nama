@@ -1,7 +1,7 @@
 {
   "name": "Nama",
   "id": "nama",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "Collection of local scrapers and streaming providers for movies, TV series, and anime in Nuvio",
   "author": "mayurgj",
   "scrapers": [
