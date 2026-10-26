@@ -320,8 +320,13 @@ test("multimovies end-to-end movie flow with mocked network", () => {
     "titleId":1,"season":1,"episode":1,"initialServers":[
       {"id":"a1","name":"Cineverse","type":"iframe","url":"https://rozgarlelo.modiplay.xyz/embed/tmdb/movie?id=1234139"},
       {"id":"a2","name":"Vidrift","type":"iframe","url":"https://embed.vidrift.net/embed/movie/1234139"},
-      {"id":"a3","name":"VIDOUT","type":"iframe","url":"https://vidout.pages.dev/movie/tt33318732"}
+      {"id":"a3","name":"VIDOUT","type":"iframe","url":"https://vidout.pages.dev/movie/tt33318732"},
+      {"id":"a4","name":"VidBolt","type":"iframe","url":"https://vidbolt.xyz/movie/1234139"},
+      {"id":"a5","name":"Filmu","type":"iframe","url":"https://embed.filmu.in/movie/1234139"}
     ]};</script></body></html>`;
+  const vidlyHtml = `<html><body>
+    <link rel="preload" href="https://proxy.streamrip.fun/m/ABCTOKEN?f=.m3u8" as="fetch">
+  </body></html>`;
 
   return withFetch(async (url) => {
     url = String(url);
@@ -349,14 +354,30 @@ test("multimovies end-to-end movie flow with mocked network", () => {
     if (url.indexOf("raw.githubusercontent.com/Watchout2025") !== -1) {
       return mockRes({ ok: true, body: "https://cdn.example/vidout/jailer2/master.m3u8" });
     }
+    if (url.indexOf("vidbolt.xyz/api/resolve") !== -1) {
+      return mockRes({ ok: true, json: {
+        stream: {
+          server: "vega",
+          sources: [
+            { url: "https://proxy.vidbolt.xyz/m/aaaa?f=.m3u8", kind: "hls", quality: "1080p", language: "Tamil" },
+            { url: "https://proxy.vidbolt.xyz/m/bbbb?f=.m3u8", kind: "hls", quality: "720p", language: "Hindi" }
+          ]
+        }
+      } });
+    }
+    if (url.indexOf("embed.filmu.in") !== -1 || url.indexOf("vidly.pro") !== -1) {
+      return mockRes({ ok: true, body: vidlyHtml });
+    }
     return mockRes({ ok: false, status: 404 });
   }, async () => {
     const streams = await mmProvider.getStreams(1234139, "movie");
-    assert(Array.isArray(streams) && streams.length >= 3, "expected at least 3 streams, got " + streams.length);
+    assert(Array.isArray(streams) && streams.length >= 5, "expected >=5 streams, got " + streams.length);
     const providers = streams.map((s) => s.name);
     assert(providers.some((n) => n.includes("Vidrift")), "has Vidrift stream");
     assert(providers.some((n) => n.includes("Cineverse")), "has Cineverse stream");
     assert(providers.some((n) => n.includes("VIDOUT")), "has VIDOUT stream");
+    assert(providers.some((n) => n.includes("VidBolt")), "has VidBolt stream");
+    assert(providers.some((n) => n.includes("Filmu")), "has Filmu stream");
     streams.forEach((s) => {
       assert(s.url && s.url.indexOf("http") === 0, "stream has http(s) url");
       assert.strictEqual(s.provider, "multimovies");

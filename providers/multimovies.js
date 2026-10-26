@@ -542,6 +542,107 @@ async function extractCineverse(iframeUrl) {
 }
 
 /* ──────────────────────────────────────────────────────────────────────── *
+ *  Extractor: VidBolt (vidbolt.xyz)
+ *    Clean JSON API: GET /api/resolve?type=movie|tv&id={tmdbId}[&s=&e=] →
+ *    { stream: { server, sources: [{url, kind, quality, language}, …] } }.
+ *    Sources are already per-language with explicit quality labels — we emit
+ *    one stream per source and prefix with the picked server name.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+async function extractVidbolt(iframeUrl, details, mediaType, season, episode) {
+  try {
+    var tmdbId = details && details.id;
+    if (!tmdbId) return [];
+    var api = "https://vidbolt.xyz/api/resolve?type=" + (mediaType === "tv" ? "tv" : "movie") + "&id=" + tmdbId;
+    if (mediaType === "tv") api += "&s=" + season + "&e=" + episode;
+    var res = await fetch(api, {
+      headers: Object.assign({}, HEADERS, {
+        "Accept": "application/json, text/plain, */*",
+        "Referer": iframeUrl,
+        "Origin": "https://vidbolt.xyz"
+      }),
+      signal: timeoutSignal(10000)
+    });
+    if (!res || !res.ok) return [];
+    var data = await res.json();
+    if (!data || !data.stream || !Array.isArray(data.stream.sources)) return [];
+    var serverName = data.stream.server ? String(data.stream.server) : "VidBolt";
+    serverName = serverName.charAt(0).toUpperCase() + serverName.slice(1);
+    return data.stream.sources.map(function (src) {
+      if (!src || !src.url) return null;
+      var quality = src.quality || parseQualityFromTitle(src.url) || "Auto";
+      var language = src.language || "Original";
+      return {
+        name: "MultiMovies • VidBolt/" + serverName + " • " + quality + " • " + language,
+        url: String(src.url),
+        quality: quality,
+        headers: {
+          "Referer": "https://vidbolt.xyz/",
+          "Origin": "https://vidbolt.xyz",
+          "User-Agent": USER_AGENT
+        },
+        type: (src.kind === "mp4") ? "mp4" : "m3u8"
+      };
+    }).filter(Boolean);
+  } catch (e) {
+    warn("extractor:vidbolt", e);
+    return [];
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────── *
+ *  Extractor: Filmu (embed.filmu.in → vidly.pro)
+ *    Filmu redirects to vidly.pro, a Next.js SSR page that preloads the HLS
+ *    media playlist URL inline. We follow the redirect and scrape the
+ *    `proxy.streamrip.fun/m/…?f=.m3u8` preload — one stream, the default
+ *    audio track Vidly selected server-side.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+async function extractFilmu(iframeUrl) {
+  try {
+    var res = await fetch(iframeUrl, {
+      headers: Object.assign({}, HEADERS, {
+        "Referer": "https://m1.multimovies.courses/",
+        "Sec-Fetch-Dest": "iframe"
+      }),
+      redirect: "follow",
+      signal: timeoutSignal(15000)
+    });
+    if (!res || !res.ok) return [];
+    var finalUrl = res.url || iframeUrl;
+    var html = await res.text();
+
+    // Prefer the preload link; fall back to any proxy.streamrip.fun m3u8 in
+    // the SSR payload.
+    var m = html.match(/https:\/\/proxy\.streamrip\.fun\/m\/[A-Za-z0-9_\-]+(?:\?[^"'\\\s<>]*)?/);
+    if (!m) return [];
+    var streamUrl = m[0];
+    if (streamUrl.indexOf("f=.m3u8") === -1 && streamUrl.indexOf(".m3u8") === -1) {
+      streamUrl = streamUrl + (streamUrl.indexOf("?") === -1 ? "?" : "&") + "f=.m3u8";
+    }
+
+    var origin;
+    try { origin = new URL(finalUrl).origin; }
+    catch (e) { origin = "https://vidly.pro"; }
+
+    return [{
+      name: "MultiMovies • Filmu • Auto • Multi-Audio",
+      url: streamUrl,
+      quality: "Auto",
+      headers: {
+        "Referer": origin + "/",
+        "Origin": origin,
+        "User-Agent": USER_AGENT
+      },
+      type: "m3u8"
+    }];
+  } catch (e) {
+    warn("extractor:filmu", e);
+    return [];
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────── *
  *  Router — maps a watchConfig server entry to its extractor.
  * ──────────────────────────────────────────────────────────────────────── */
 
@@ -557,9 +658,14 @@ function routeServer(server, details, mediaType, season, episode) {
   if (url.indexOf("modiplay.") !== -1) {
     return extractCineverse(url);
   }
-  // Other listed hosts (iqsmartgames/moviesnexus/filmu/vidbolt) require
-  // heavier extraction (fingerprinted sessions / obfuscated JS); no extractor
-  // yet — surface silently rather than failing the batch.
+  if (url.indexOf("vidbolt.xyz") !== -1) {
+    return extractVidbolt(url, details, mediaType, season, episode);
+  }
+  if (url.indexOf("filmu.in") !== -1 || url.indexOf("vidly.pro") !== -1) {
+    return extractFilmu(url);
+  }
+  // Remaining hosts (iqsmartgames/moviesnexus) need session-aware or
+  // Cloudflare-interactive handling; no extractor yet.
   return Promise.resolve([]);
 }
 
