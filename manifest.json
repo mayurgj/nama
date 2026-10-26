@@ -29,6 +29,29 @@
         "en",
         "ja"
       ]
+    },
+    {
+      "id": "multimovies",
+      "name": "MultiMovies",
+      "description": "MultiMovies movies & series via the Cineverse (Vidara), Vidrift and VIDOUT embeds. Multi-audio HLS up to 1080p HEVC (Original, Hindi, Tamil, Telugu, Kannada).",
+      "version": "1.1.0",
+      "author": "mayurgj",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/multimovies.js",
+      "enabled": true,
+      "formats": [
+        "m3u8"
+      ],
+      "logo": "https://www.google.com/s2/favicons?domain=multimovies.wtf&sz=128",
+      "contentLanguage": [
+        "hi",
+        "ta",
+        "te",
+        "en"
+      ]
     }
   ]
 }

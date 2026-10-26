@@ -80,6 +80,17 @@ test("manifest.json exists and parses", () => {
   assert(scraper.formats.includes("m3u8"));
 });
 
+test("manifest contains multimovies scraper entry", () => {
+  const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"));
+  const mm = manifest.scrapers.find((s) => s.id === "multimovies");
+  assert(mm, "multimovies scraper present");
+  assert.strictEqual(mm.filename, "providers/multimovies.js");
+  assert(mm.supportedTypes.includes("movie"));
+  assert(mm.supportedTypes.includes("tv"));
+  assert(mm.formats.includes("m3u8"));
+  assert(fs.existsSync(path.join(ROOT, mm.filename)), "multimovies provider file exists");
+});
+
 // ---------- 2. Utility functions ----------
 section("utils");
 const {
@@ -263,6 +274,125 @@ test("extractAwsStream handles network errors gracefully", () =>
     const r = await extractAwsStream("https://as-cdn.example/player/abc123");
     assert.deepStrictEqual(r, []);
   }));
+
+// ---------- 4b. MultiMovies provider (mocked fetch) ----------
+section("multimovies (mocked)");
+delete require.cache[require.resolve("../providers/multimovies")];
+const mmProvider = require("../providers/multimovies");
+
+test("multimovies exports getStreams", () => {
+  assert.strictEqual(typeof mmProvider.getStreams, "function");
+});
+
+test("multimovies getStreams rejects missing tmdbId", async () => {
+  assert.deepStrictEqual(await mmProvider.getStreams(null, "movie"), []);
+  assert.deepStrictEqual(await mmProvider.getStreams(undefined, "movie"), []);
+});
+
+test("multimovies getStreams rejects invalid tv season/episode", async () => {
+  assert.deepStrictEqual(await mmProvider.getStreams(1234139, "tv", 0, 1), []);
+  assert.deepStrictEqual(await mmProvider.getStreams(1234139, "tv", 1, 0), []);
+  assert.deepStrictEqual(await mmProvider.getStreams(1234139, "tv", "a", "b"), []);
+});
+
+test("multimovies getStreams returns [] when TMDB lookup fails", () =>
+  withFetch(() => mockRes({ ok: false, status: 500 }), async () => {
+    const r = await mmProvider.getStreams(1234139, "movie");
+    assert.deepStrictEqual(r, []);
+  }));
+
+test("multimovies end-to-end movie flow with mocked network", () => {
+  // Script the full pipeline: TMDB → mirror pointer → search → movie page
+  // (with watchConfig listing Vidrift+VIDOUT+Cineverse) → per-embed extractors.
+  const vidriftHtml = `<html><body><script>
+    var embedMeta = {
+      "orionStreams":[
+        {"name":"Orion · Original","url":"/hls/abc/master.m3u8","rungs":[{"height":1080}]},
+        {"name":"Orion · Hindi","url":"/hls/hin/master.m3u8","rungs":[{"height":720}]}
+      ]
+    };
+  </script></body></html>`;
+  const cineverseHtml = `<html><body>
+    <div data-url="https://vidara.to/e/XYZCODE1" data-platform="vidara"></div>
+    <div data-url="https://multimoviesshg.com/e/abc" data-platform="streamhg"></div>
+  </body></html>`;
+  const watchConfigHtml = `<html><body><script>const watchConfig = {
+    "titleId":1,"season":1,"episode":1,"initialServers":[
+      {"id":"a1","name":"Cineverse","type":"iframe","url":"https://rozgarlelo.modiplay.xyz/embed/tmdb/movie?id=1234139"},
+      {"id":"a2","name":"Vidrift","type":"iframe","url":"https://embed.vidrift.net/embed/movie/1234139"},
+      {"id":"a3","name":"VIDOUT","type":"iframe","url":"https://vidout.pages.dev/movie/tt33318732"}
+    ]};</script></body></html>`;
+
+  return withFetch(async (url) => {
+    url = String(url);
+    if (url.indexOf("api.themoviedb.org") !== -1) {
+      return mockRes({ ok: true, json: { id: 1234139, title: "Jailer 2", original_title: "Jailer 2", release_date: "2026-07-01", external_ids: { imdb_id: "tt33318732" }, alternative_titles: { titles: [] } } });
+    }
+    if (url.indexOf("multimovies.wtf") !== -1) {
+      return mockRes({ ok: true, body: `<a class="cta-primary" href="https://m1.multimovies.courses">Visit</a>` });
+    }
+    if (url.indexOf("/search") !== -1) {
+      return mockRes({ ok: true, body: `<a href="/movie/jailer-2" title="Jailer 2">Jailer 2</a>` });
+    }
+    if (url.indexOf("/movie/jailer-2") !== -1) {
+      return mockRes({ ok: true, body: watchConfigHtml });
+    }
+    if (url.indexOf("embed.vidrift.net") !== -1) {
+      return mockRes({ ok: true, body: vidriftHtml });
+    }
+    if (url.indexOf("rozgarlelo.modiplay.xyz") !== -1) {
+      return mockRes({ ok: true, body: cineverseHtml });
+    }
+    if (url.indexOf("gasobni.com/api/stream") !== -1) {
+      return mockRes({ ok: true, json: { filecode: "XYZCODE1", streaming_url: "https://cdn.example/hls/XYZCODE1/master.m3u8?token=t", title: "Jailer-2.2026.1080p.HEVC.Hindi-Tamil.x265" } });
+    }
+    if (url.indexOf("raw.githubusercontent.com/Watchout2025") !== -1) {
+      return mockRes({ ok: true, body: "https://cdn.example/vidout/jailer2/master.m3u8" });
+    }
+    return mockRes({ ok: false, status: 404 });
+  }, async () => {
+    const streams = await mmProvider.getStreams(1234139, "movie");
+    assert(Array.isArray(streams) && streams.length >= 3, "expected at least 3 streams, got " + streams.length);
+    const providers = streams.map((s) => s.name);
+    assert(providers.some((n) => n.includes("Vidrift")), "has Vidrift stream");
+    assert(providers.some((n) => n.includes("Cineverse")), "has Cineverse stream");
+    assert(providers.some((n) => n.includes("VIDOUT")), "has VIDOUT stream");
+    streams.forEach((s) => {
+      assert(s.url && s.url.indexOf("http") === 0, "stream has http(s) url");
+      assert.strictEqual(s.provider, "multimovies");
+      assert.strictEqual(s.type, "m3u8");
+      assert(s.headers && s.headers["User-Agent"], "stream carries UA header");
+    });
+    // Streams must be sorted by quality (1080p ≥ 720p ≥ Auto)
+    const qOrder = { "4K": 6, "1440p": 5, "1080p": 4, "720p": 3, "480p": 2, "360p": 1, "Auto": 0 };
+    for (let i = 1; i < streams.length; i++) {
+      assert((qOrder[streams[i - 1].quality] || 0) >= (qOrder[streams[i].quality] || 0),
+        "streams not quality-sorted");
+    }
+  });
+});
+
+test("multimovies getStreams returns [] when watchConfig is absent", () => {
+  return withFetch(async (url) => {
+    url = String(url);
+    if (url.indexOf("api.themoviedb.org") !== -1) {
+      return mockRes({ ok: true, json: { id: 1234139, title: "Jailer 2", original_title: "Jailer 2", release_date: "2026-07-01", external_ids: {}, alternative_titles: { titles: [] } } });
+    }
+    if (url.indexOf("multimovies.wtf") !== -1) {
+      return mockRes({ ok: true, body: `<a class="cta-primary" href="https://m1.multimovies.courses">x</a>` });
+    }
+    if (url.indexOf("/search") !== -1) {
+      return mockRes({ ok: true, body: `<a href="/movie/jailer-2">Jailer 2</a>` });
+    }
+    if (url.indexOf("/movie/jailer-2") !== -1) {
+      return mockRes({ ok: true, body: "<html><body>no watchConfig here</body></html>" });
+    }
+    return mockRes({ ok: false, status: 404 });
+  }, async () => {
+    const streams = await mmProvider.getStreams(1234139, "movie");
+    assert.deepStrictEqual(streams, []);
+  });
+});
 
 // ---------- 5. getStreams input validation ----------
 section("getStreams validation");
