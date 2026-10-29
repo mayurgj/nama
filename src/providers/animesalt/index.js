@@ -1,13 +1,15 @@
 const cheerio = require("cheerio-without-node-native");
 const {
-  MAIN_URL,
   HEADERS,
+  RESOLUTION_ORDER,
   isRealStreamUrl,
   validateEpisodeInput,
   joinUrl,
   warn
-} = require("./constants");
-const { fetchTmdbDetails } = require("./tmdb");
+} = require("../../shared/constants");
+const { fetchTmdbDetails } = require("../../shared/tmdb");
+const { normalizeSeasonEpisode } = require("../../shared/formatter");
+const { MAIN_URL } = require("./constants");
 const { findBestMatch } = require("./search");
 const { resolveEpisodeUrl } = require("./episodes");
 const { extractMultiLang } = require("./extractors/multilang");
@@ -15,30 +17,13 @@ const { extractAwsStream } = require("./extractors/awsstream");
 const { extractMegaPlay } = require("./extractors/megaplay");
 const { extractStreamWish } = require("./extractors/streamwish");
 
-/**
- * @typedef {Object} Stream
- * @property {string} name     Human-readable label (e.g. "AnimeSalt [MegaPlay] [English]")
- * @property {string} title    Movie title or "Show - S1E1"
- * @property {string} url      Direct playable URL (hls/mp4/mkv/mpd)
- * @property {string} quality  "4K" | "1440p" | "1080p" | "720p" | "480p" | "360p" | "Auto"
- * @property {Object<string,string>=} headers Required headers for playback (Referer, Origin, UA)
- * @property {Array<{lang: string, url: string}>=} subtitles
- * @property {string} provider "animesalt"
- * @property {string} type     "m3u8" | "mp4" | "mkv" | "mpd"
- */
+// Keep only HD+ resolutions. Null (resolution unknown) is kept because HLS
+// masters without a declared variant are usually 1080p-capable.
+const HD_PLUS = new Set(["2160p", "1440p", "1080p", null]);
 
-const QUALITY_ORDER = { "4K": 6, "1440p": 5, "1080p": 4, "720p": 3, "480p": 2, "360p": 1, "Auto": 0 };
-
-// Keep only 1080p+ qualities. "Auto" is kept because HLS master playlists
-// have no explicit quality marker but typically include 1080p renditions.
-const HD_PLUS = new Set(["4K", "1440p", "1080p", "Auto"]);
-
-// Route table: first matching entry handles the iframe URL.
-// Each `run` returns an array of raw streams (post-normalisation).
 const EXTRACTOR_ROUTES = [
   {
     name: "multilang",
-    // Covers both ToroFilm variants: /plyr/player.php?data=... and /multi-lang-plyr/player.php?data=...
     match: (u) => /\/(?:multi-lang-)?plyr\/player\.php\?/.test(u),
     run: async (iframeUrl) => {
       try {
@@ -107,13 +92,8 @@ function collectIframeUrls($page) {
   return urls;
 }
 
-/**
- * HEAD-ish probe: does this URL actually return bytes (not an HTML error page)?
- * @param {Stream} stream
- * @returns {Promise<boolean>}
- */
 async function isPlayableStream(stream) {
-  if (!isRealStreamUrl(stream?.url)) return false;
+  if (!isRealStreamUrl(stream && stream.url)) return false;
   try {
     const headers = {
       "User-Agent": HEADERS["User-Agent"],
@@ -134,14 +114,6 @@ async function isPlayableStream(stream) {
   }
 }
 
-/**
- * Resolve TMDB id → playable streams via animesalt.cx.
- * @param {string|number} tmdbId
- * @param {"movie"|"tv"} [mediaType]
- * @param {number} [seasonNum]
- * @param {number} [episodeNum]
- * @returns {Promise<Stream[]>}
- */
 async function getStreams(tmdbId, mediaType = "movie", seasonNum = 1, episodeNum = 1) {
   try {
     if (!tmdbId) return [];
@@ -178,43 +150,33 @@ async function getStreams(tmdbId, mediaType = "movie", seasonNum = 1, episodeNum
       Array.from(iframeUrls).map((u) => routeIframe(u))
     );
 
-    const rawStreams = [];
-    for (const r of results) {
-      if (r.status === "fulfilled" && Array.isArray(r.value)) rawStreams.push(...r.value);
-    }
+    const seasonEpisode = mediaType === "tv"
+      ? normalizeSeasonEpisode({ season, episode })
+      : null;
 
-    const titleLabel = mediaType === "movie"
-      ? details.title
-      : `${details.title} - S${season}E${episode}`;
-
-    const seenUrls = new Set();
+    const seen = new Set();
     const candidates = [];
-    for (const s of rawStreams) {
-      if (!s || !s.url || seenUrls.has(s.url) || !isRealStreamUrl(s.url)) continue;
-      const q = s.quality || "Auto";
-      if (!HD_PLUS.has(q)) continue;
-      seenUrls.add(s.url);
-      candidates.push({
-        name: s.name || "AnimeSalt",
-        title: titleLabel,
-        url: s.url,
-        quality: s.quality || "Auto",
-        headers: s.headers,
-        subtitles: s.subtitles || [],
-        provider: "animesalt",
-        type: s.type || "m3u8"
-      });
+    for (const r of results) {
+      if (r.status !== "fulfilled" || !Array.isArray(r.value)) continue;
+      for (const stream of r.value) {
+        if (!stream || !stream.url || seen.has(stream.url)) continue;
+        if (!isRealStreamUrl(stream.url)) continue;
+        if (!HD_PLUS.has(stream.resolution)) continue;
+        seen.add(stream.url);
+        if (seasonEpisode) stream.seasonEpisode = seasonEpisode;
+        candidates.push(stream);
+      }
     }
 
     const probed = await Promise.all(
       candidates.map(async (s) => ({ s, ok: await isPlayableStream(s) }))
     );
     const playable = probed.filter((r) => r.ok).map((r) => r.s);
-    const finalStreams = playable.length > 0 ? playable : candidates;
+    const final = playable.length > 0 ? playable : candidates;
 
-    return finalStreams.sort((a, b) => {
-      const qA = QUALITY_ORDER[a.quality] ?? 0;
-      const qB = QUALITY_ORDER[b.quality] ?? 0;
+    return final.sort((a, b) => {
+      const qA = RESOLUTION_ORDER[a.resolution] != null ? RESOLUTION_ORDER[a.resolution] : -1;
+      const qB = RESOLUTION_ORDER[b.resolution] != null ? RESOLUTION_ORDER[b.resolution] : -1;
       return qB - qA;
     });
   } catch (e) {

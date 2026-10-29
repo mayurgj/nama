@@ -1,4 +1,3 @@
-const MAIN_URL = "https://animesalt.cx";
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 const DEFAULT_TMDB_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
@@ -9,10 +8,20 @@ const HEADERS = {
   "Accept-Language": "en-US,en;q=0.9"
 };
 
-/**
- * Logger that is silent by default. Enable by setting globalThis.NUVIO_DEBUG = true.
- * Centralising this means catch blocks keep failing gracefully without littering host logs.
- */
+// Preferred descending order for sorting streams by resolution. Values are
+// opaque; higher = better. "Auto" is near-the-top because HLS masters without
+// a declared variant are usually 1080p-capable.
+const RESOLUTION_ORDER = {
+  "2160p": 7,
+  "1440p": 6,
+  "1080p": 5,
+  "720p": 4,
+  "480p": 3,
+  "360p": 2,
+  "240p": 1,
+  "144p": 0
+};
+
 function warn(context, err) {
   const dbg = typeof globalThis !== "undefined" && globalThis.NUVIO_DEBUG === true;
   if (!dbg) return;
@@ -21,11 +30,15 @@ function warn(context, err) {
   console.warn(`[nuvio:${context}] ${msg}`);
 }
 
-/**
- * Normalize a title for comparison: lowercase, strip punctuation, collapse whitespace.
- * @param {string} str
- * @returns {string}
- */
+function timeoutSignal(ms) {
+  try {
+    if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) {
+      return AbortSignal.timeout(ms);
+    }
+  } catch (e) { /* ignore */ }
+  return undefined;
+}
+
 function cleanTitle(str) {
   return (str || "")
     .toLowerCase()
@@ -34,19 +47,12 @@ function cleanTitle(str) {
     .trim();
 }
 
-/**
- * Rough string similarity in [0, 1] based on cleaned-title word overlap.
- * @param {string} a
- * @param {string} b
- * @returns {number}
- */
 function titleSimilarity(a, b) {
   const cleanA = cleanTitle(a);
   const cleanB = cleanTitle(b);
   if (!cleanA || !cleanB) return 0;
   if (cleanA === cleanB) return 1;
   if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return 0.8;
-
   const wordsA = new Set(cleanA.split(" "));
   const wordsB = new Set(cleanB.split(" "));
   let intersection = 0;
@@ -56,12 +62,6 @@ function titleSimilarity(a, b) {
   return (intersection * 2) / (wordsA.size + wordsB.size);
 }
 
-/**
- * Reverse Dean Edwards' p.a.c.k.e.r. Returns the original code if the input
- * isn't packed or unpacking fails.
- * @param {string} code
- * @returns {string}
- */
 function unpack(code) {
   try {
     const match = code.match(/}\((['"])([\s\S]*?)\1,\s*(\d+),\s*(\d+),\s*(['"])([\s\S]*?)\5\.split\((['"])\|\7\)/);
@@ -86,13 +86,6 @@ function unpack(code) {
   return code;
 }
 
-/**
- * Join a base URL with a path. Preserves absolute URLs and promotes
- * protocol-relative (//host) to https.
- * @param {string} base
- * @param {string} p
- * @returns {string}
- */
 function joinUrl(base, p) {
   if (!p) return base;
   if (p.startsWith("http://") || p.startsWith("https://")) return p;
@@ -102,12 +95,6 @@ function joinUrl(base, p) {
   return `${b}${suffix}`;
 }
 
-/**
- * Validate season/episode inputs. Returns null when either is not a positive integer.
- * @param {number|string} seasonNum
- * @param {number|string} episodeNum
- * @returns {{season: number, episode: number} | null}
- */
 function validateEpisodeInput(seasonNum, episodeNum) {
   const s = Number(seasonNum);
   const e = Number(episodeNum);
@@ -116,38 +103,9 @@ function validateEpisodeInput(seasonNum, episodeNum) {
   return { season: s, episode: e };
 }
 
-const QUALITY_PATTERNS = [
-  { re: /(?:^|[^0-9])2160p?(?:[^0-9]|$)|(?:^|[^a-z0-9])4k(?:[^a-z0-9]|$)/i, q: "4K" },
-  { re: /(?:^|[^0-9])1440p?(?:[^0-9]|$)|(?:^|[^a-z0-9])2k(?:[^a-z0-9]|$)/i, q: "1440p" },
-  { re: /(?:^|[^0-9])1080p?(?:[^0-9]|$)|(?:^|[^a-z0-9])fhd(?:[^a-z0-9]|$)/i, q: "1080p" },
-  { re: /(?:^|[^0-9])720p?(?:[^0-9]|$)|(?:^|[^a-z0-9])hd(?:[^a-z0-9]|$)/i, q: "720p" },
-  { re: /(?:^|[^0-9])480p?(?:[^0-9]|$)/i, q: "480p" },
-  { re: /(?:^|[^0-9])360p?(?:[^0-9]|$)/i, q: "360p" }
-];
-
-/**
- * Best-effort quality extraction from a stream URL or filename. m3u8 master
- * playlists usually have no quality marker, so "Auto" is the honest default.
- * @param {string} url
- * @param {string} fallback
- * @returns {string}
- */
-function parseQualityFromUrl(url, fallback = "Auto") {
-  if (!url || typeof url !== "string") return fallback;
-  for (const { re, q } of QUALITY_PATTERNS) {
-    if (re.test(url)) return q;
-  }
-  return fallback;
-}
-
-/**
- * Map an HLS variant's pixel height to our quality label.
- * @param {number} height
- * @returns {string}
- */
 function heightToQuality(height) {
-  if (!Number.isFinite(height) || height <= 0) return "Auto";
-  if (height >= 2160) return "4K";
+  if (!Number.isFinite(height) || height <= 0) return null;
+  if (height >= 2160) return "2160p";
   if (height >= 1440) return "1440p";
   if (height >= 1080) return "1080p";
   if (height >= 720) return "720p";
@@ -157,15 +115,6 @@ function heightToQuality(height) {
   return "144p";
 }
 
-/**
- * Parse an HLS master playlist into a list of variant streams. Resolves
- * relative variant URLs against the master URL and carries forward the
- * master's query string when the variant has none — most signed-URL
- * schemes (CloudFront, Hydrax-style) need the token re-attached.
- * @param {string} text    Master playlist body
- * @param {string} baseUrl Master playlist URL (for relative resolution)
- * @returns {Array<{url: string, quality: string, height: number, bandwidth: number}>}
- */
 function parseHlsMaster(text, baseUrl) {
   if (!text || typeof text !== "string") return [];
   const lines = text.split(/\r?\n/);
@@ -173,9 +122,7 @@ function parseHlsMaster(text, baseUrl) {
   let masterQuery = "";
   try {
     masterQuery = new URL(baseUrl).search || "";
-  } catch (_) {
-    /* ignore */
-  }
+  } catch (_) { /* ignore */ }
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line || !line.startsWith("#EXT-X-STREAM-INF:")) continue;
@@ -193,29 +140,17 @@ function parseHlsMaster(text, baseUrl) {
       continue;
     }
     if (masterQuery && !resolved.includes("?")) resolved += masterQuery;
-    out.push({ url: resolved, quality: heightToQuality(height), height, bandwidth });
+    out.push({ url: resolved, resolution: heightToQuality(height), height, bandwidth });
   }
   return out;
 }
 
-/**
- * Count EXT-X-MEDIA:TYPE=AUDIO entries in an HLS master. Signals that a
- * player should be given the master URL (not a variant) so audio-track
- * switching stays available in the native player UI.
- * @param {string} text
- * @returns {number}
- */
 function hlsAudioTrackCount(text) {
   if (!text || typeof text !== "string") return 0;
   const matches = text.match(/#EXT-X-MEDIA:[^\n]*TYPE=AUDIO/gi);
   return matches ? matches.length : 0;
 }
 
-/**
- * True iff `url` looks like a direct playable media URL (not an embed page).
- * @param {unknown} url
- * @returns {boolean}
- */
 function isRealStreamUrl(url) {
   if (!url || typeof url !== "string") return false;
   if (!url.startsWith("http://") && !url.startsWith("https://")) return false;
@@ -252,18 +187,18 @@ function isRealStreamUrl(url) {
 }
 
 module.exports = {
-  MAIN_URL,
   TMDB_BASE_URL,
   DEFAULT_TMDB_KEY,
   USER_AGENT,
   HEADERS,
+  RESOLUTION_ORDER,
   warn,
+  timeoutSignal,
   cleanTitle,
   titleSimilarity,
   unpack,
   joinUrl,
   validateEpisodeInput,
-  parseQualityFromUrl,
   heightToQuality,
   parseHlsMaster,
   hlsAudioTrackCount,

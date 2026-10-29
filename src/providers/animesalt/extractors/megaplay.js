@@ -1,13 +1,8 @@
 const CryptoJS = require("crypto-js");
 const cheerio = require("cheerio-without-node-native");
-const { HEADERS, parseQualityFromUrl, warn } = require("../constants");
+const { HEADERS, warn } = require("../../../shared/constants");
+const { formatStream, parseResolution } = require("../../../shared/formatter");
 
-/**
- * Extract streams from a megaplay.buzz / rapid-cloud.co embed.
- * @param {string} url
- * @param {string} [langName]
- * @returns {Promise<Array<import("../index").Stream>>}
- */
 async function extractMegaPlay(url, langName = "Multi") {
   try {
     let streamPageUrl = url;
@@ -37,12 +32,12 @@ async function extractMegaPlay(url, langName = "Multi") {
     if (!apiRes.ok) return [];
     const resJson = await apiRes.json();
 
-    let file = resJson?.sources?.file;
-    const enc = resJson?.enc;
+    let file = resJson && resJson.sources && resJson.sources.file;
+    const enc = resJson && resJson.enc;
 
     if (!file && enc) {
-      // Keys are public (reverse-engineered from the embed's client JS). Kept in
-      // source so the bundle is self-contained; rotating them is the vendor's job.
+      // Keys reverse-engineered from the embed client — kept inline so the
+      // bundle is self-contained. Rotating them is the vendor's job.
       const keyStr = "i?LMTAx0Q6,:}50U";
       const keyHex = CryptoJS.enc.Utf8.parse(keyStr).toString(CryptoJS.enc.Hex).padEnd(64, "0");
       const key = CryptoJS.enc.Hex.parse(keyHex);
@@ -55,7 +50,7 @@ async function extractMegaPlay(url, langName = "Multi") {
         padding: CryptoJS.pad.Pkcs7
       });
       const decObj = JSON.parse(decrypted.toString(CryptoJS.enc.Utf8));
-      file = decObj?.file;
+      file = decObj && decObj.file;
     }
 
     if (!file) return [];
@@ -67,36 +62,32 @@ async function extractMegaPlay(url, langName = "Multi") {
       const payload = `${expires}|${tokenMatch[1]}/${tokenMatch[2]}`;
       const hash = CryptoJS.HmacSHA256(payload, secret);
       const b64Payload = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(payload))
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
+        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
       const b64Sig = CryptoJS.enc.Base64.stringify(hash)
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
+        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
       const token = `${b64Payload}.${b64Sig}`;
       file = `${file}${file.includes("?") ? "&" : "?"}token=${token}`;
     }
 
-    const subtitles = (resJson?.tracks || [])
+    const subtitles = ((resJson && resJson.tracks) || [])
       .filter((t) => t.file && t.kind !== "thumbnails")
       .map((t) => ({ lang: t.label || "English", url: t.file }));
 
-    const quality = parseQualityFromUrl(file, "Auto");
-    return [
-      {
-        name: `AnimeSalt • MegaPlay • ${quality} • ${langName}`,
-        url: file,
-        quality,
-        headers: {
-          "Referer": `${origin}/`,
-          "Origin": origin,
-          "User-Agent": HEADERS["User-Agent"]
-        },
-        subtitles,
-        type: "m3u8"
-      }
-    ];
+    const languages = (!langName || langName === "Multi") ? ["multi"] : [langName];
+
+    return [formatStream({
+      url: file,
+      provider: "animesalt",
+      type: "m3u8",
+      resolution: parseResolution(file),
+      languages,
+      headers: {
+        "Referer": `${origin}/`,
+        "Origin": origin,
+        "User-Agent": HEADERS["User-Agent"]
+      },
+      subtitles
+    })];
   } catch (e) {
     warn("extractor:megaplay", e);
     return [];

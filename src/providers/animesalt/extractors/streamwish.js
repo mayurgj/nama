@@ -1,11 +1,6 @@
-const { HEADERS, unpack, parseQualityFromUrl, warn } = require("../constants");
+const { HEADERS, unpack, warn } = require("../../../shared/constants");
+const { formatStream, parseResolution } = require("../../../shared/formatter");
 
-/**
- * Extract a stream from a streamwish / pixdrive / ghbrisk / filesim embed.
- * @param {string} url
- * @param {string} [langName]
- * @returns {Promise<import("../index").Stream | null>}
- */
 async function extractStreamWish(url, langName = "Multi") {
   try {
     const embedUrl = url.includes("/e/") ? url : url.replace("/f/", "/e/");
@@ -21,18 +16,20 @@ async function extractStreamWish(url, langName = "Multi") {
     if (!fileMatch) return null;
 
     const origin = new URL(embedUrl).origin;
-    const quality = parseQualityFromUrl(fileMatch[1], "Auto");
-    return {
-      name: `AnimeSalt • StreamWish • ${quality} • ${langName}`,
+    const languages = (!langName || langName === "Multi") ? ["multi"] : [langName];
+
+    return formatStream({
       url: fileMatch[1],
-      quality,
+      provider: "animesalt",
+      type: "m3u8",
+      resolution: parseResolution(fileMatch[1]),
+      languages,
       headers: {
         "Referer": `${origin}/`,
         "Origin": origin,
         "User-Agent": HEADERS["User-Agent"]
-      },
-      type: "m3u8"
-    };
+      }
+    });
   } catch (e) {
     warn("extractor:streamwish", e);
     return null;

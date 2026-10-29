@@ -1,14 +1,7 @@
 const cheerio = require("cheerio-without-node-native");
-const { MAIN_URL, HEADERS, joinUrl, warn } = require("./constants");
+const { HEADERS, joinUrl, warn } = require("../../shared/constants");
+const { MAIN_URL } = require("./constants");
 
-/**
- * Resolve a specific episode page URL from a series landing page.
- * @param {string} seriesUrl
- * @param {number} seasonNum
- * @param {number} episodeNum
- * @param {string} showTitle
- * @returns {Promise<string|null>}
- */
 async function resolveEpisodeUrl(seriesUrl, seasonNum, episodeNum, showTitle) {
   try {
     const res = await fetch(seriesUrl, { headers: HEADERS });
@@ -16,25 +9,17 @@ async function resolveEpisodeUrl(seriesUrl, seasonNum, episodeNum, showTitle) {
     const html = await res.text();
     const $ = cheerio.load(html);
 
-    // 1. ToroFilm season buttons -> admin-ajax episode list
     let seasonBtn = $(`div.season-buttons a[data-season="${seasonNum}"]`);
     if (seasonBtn.length === 0) {
       seasonBtn = $(`a[data-season="${seasonNum}"]`);
     }
 
-    // Grab the postId from the matched button, or from ANY button on the page
-    // (the postId identifies the series, not the season — the season number is
-    // sent separately in the AJAX body).
     let postId = seasonBtn.length ? seasonBtn.attr("data-post") : null;
     if (!postId) {
-      // The requested season didn't match any button, but we still need the
-      // postId to query the AJAX endpoint.  Grab it from the first button.
       const anyBtn = $("div.season-buttons a[data-post]").first();
       if (anyBtn.length) postId = anyBtn.attr("data-post");
     }
 
-    // Always send the *requested* season number — never the fallback button's
-    // data-season, which would silently load the wrong season.
     const dataSeason = seasonNum;
 
     if (postId) {
@@ -55,28 +40,22 @@ async function resolveEpisodeUrl(seriesUrl, seasonNum, episodeNum, showTitle) {
         const epArticles = $ep("li article, article.post, li");
         let targetEp = null;
 
-        // Pad episode number for patterns; use word-boundary-aware checks to
-        // prevent e.g. episode 1 matching inside episode 10/11/12.
         const epStr = String(episodeNum);
         const epPad = episodeNum < 10 ? `0${episodeNum}` : epStr;
         const epPats = [
-          { pat: `x${epStr}`,         boundary: true },
-          { pat: `x${epPad}`,         boundary: true },
-          { pat: `e${epStr}`,         boundary: true },
-          { pat: `e${epPad}`,         boundary: true },
-          { pat: `episode ${epStr}`,  boundary: false },
-          { pat: `episode ${epPad}`,  boundary: false },
-          { pat: `ep ${epStr}`,       boundary: false },
-          { pat: `ep ${epPad}`,       boundary: false },
-          { pat: `ep-${epStr}`,       boundary: true },
-          { pat: `-${epStr}/`,        boundary: false },
-          { pat: `-${epPad}/`,        boundary: false }
+          { pat: `x${epStr}`, boundary: true },
+          { pat: `x${epPad}`, boundary: true },
+          { pat: `e${epStr}`, boundary: true },
+          { pat: `e${epPad}`, boundary: true },
+          { pat: `episode ${epStr}`, boundary: false },
+          { pat: `episode ${epPad}`, boundary: false },
+          { pat: `ep ${epStr}`, boundary: false },
+          { pat: `ep ${epPad}`, boundary: false },
+          { pat: `ep-${epStr}`, boundary: true },
+          { pat: `-${epStr}/`, boundary: false },
+          { pat: `-${epPad}/`, boundary: false }
         ];
 
-        /**
-         * Check if `text` contains `pattern`, with an optional right-side
-         * word-boundary check so that "e1" doesn't match inside "e10".
-         */
         function patMatch(text, pattern, needBoundary) {
           const idx = text.indexOf(pattern);
           if (idx === -1) return false;
@@ -84,7 +63,6 @@ async function resolveEpisodeUrl(seriesUrl, seasonNum, episodeNum, showTitle) {
           const after = idx + pattern.length;
           if (after >= text.length) return true;
           const ch = text.charCodeAt(after);
-          // Not a digit (0-9) → boundary OK
           return ch < 48 || ch > 57;
         }
 
@@ -109,7 +87,6 @@ async function resolveEpisodeUrl(seriesUrl, seasonNum, episodeNum, showTitle) {
       }
     }
 
-    // 2. Fallback: static episode links on the series page
     const directLinks = [];
     $("a").each((_, el) => {
       const href = $(el).attr("href") || "";
@@ -120,21 +97,17 @@ async function resolveEpisodeUrl(seriesUrl, seasonNum, episodeNum, showTitle) {
 
     const epStr2 = String(episodeNum);
     const epPad2 = episodeNum < 10 ? `0${episodeNum}` : epStr2;
-    // Build patterns with boundary awareness to avoid matching ep 1 inside ep 10
     const directPats = [
-      { pat: `x${epStr2}`,         boundary: true },
-      { pat: `x${epPad2}`,         boundary: true },
-      { pat: `episode-${epStr2}`,  boundary: true },
-      { pat: `episode-${epPad2}`,  boundary: true },
-      { pat: `episode ${epStr2}`,  boundary: false },
-      { pat: `episode ${epPad2}`,  boundary: false },
-      { pat: `ep-${epStr2}`,       boundary: true },
-      { pat: `ep-${epPad2}`,       boundary: true }
+      { pat: `x${epStr2}`, boundary: true },
+      { pat: `x${epPad2}`, boundary: true },
+      { pat: `episode-${epStr2}`, boundary: true },
+      { pat: `episode-${epPad2}`, boundary: true },
+      { pat: `episode ${epStr2}`, boundary: false },
+      { pat: `episode ${epPad2}`, boundary: false },
+      { pat: `ep-${epStr2}`, boundary: true },
+      { pat: `ep-${epPad2}`, boundary: true }
     ];
 
-    /**
-     * Same boundary check as the AJAX path.
-     */
     function patMatch2(text, pattern, needBoundary) {
       const idx = text.indexOf(pattern);
       if (idx === -1) return false;

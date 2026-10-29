@@ -9,7 +9,7 @@
       "id": "animesalt",
       "name": "AnimeSalt",
       "description": "AnimeSalt anime & movie streaming with multi-language audio (Hindi, Tamil, Telugu, English) and high-quality direct HLS streams",
-      "version": "1.0.4",
+      "version": "1.1.0",
       "author": "mayurgj",
       "supportedTypes": [
         "movie",
@@ -34,7 +34,7 @@
       "id": "multimovies",
       "name": "MultiMovies",
       "description": "MultiMovies movies & series via Cineverse (Vidara), Vidrift, VIDOUT, VidBolt and Filmu embeds. Multi-audio HLS up to 1080p HEVC (Original, Hindi, Tamil, Telugu, Kannada).",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "author": "mayurgj",
       "supportedTypes": [
         "movie",

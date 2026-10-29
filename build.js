@@ -4,66 +4,32 @@ const path = require("path");
 const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const DIST_DIR = path.join(ROOT, "providers");
-const OUT_FILE = path.join(DIST_DIR, "animesalt.js");
 
 if (!fs.existsSync(DIST_DIR)) {
   fs.mkdirSync(DIST_DIR, { recursive: true });
 }
 
-// Read all parts in dependency order
-const constantsCode = fs.readFileSync(path.join(SRC, "constants.js"), "utf8");
-const tmdbCode = fs.readFileSync(path.join(SRC, "tmdb.js"), "utf8");
-const searchCode = fs.readFileSync(path.join(SRC, "search.js"), "utf8");
-const episodesCode = fs.readFileSync(path.join(SRC, "episodes.js"), "utf8");
-const awsstreamCode = fs.readFileSync(path.join(SRC, "extractors", "awsstream.js"), "utf8");
-const streamwishCode = fs.readFileSync(path.join(SRC, "extractors", "streamwish.js"), "utf8");
-const megaplayCode = fs.readFileSync(path.join(SRC, "extractors", "megaplay.js"), "utf8");
-const multilangCode = fs.readFileSync(path.join(SRC, "extractors", "multilang.js"), "utf8");
-const indexCode = fs.readFileSync(path.join(SRC, "index.js"), "utf8");
-
-// Strip require statements and module.exports in internal modules to produce a unified bundle
 function stripCommonJs(code) {
   return code
     .replace(/const\s+\{[^}]+\}\s*=\s*require\(["'][^"']+["']\);?/g, "")
     .replace(/const\s+\w+\s*=\s*require\(["'][^"']+["']\);?/g, "")
+    .replace(/if\s*\(\s*typeof\s+module\s*!==\s*["']undefined["']\s*&&\s*module\.exports\s*\)\s*\{[\s\S]*?\n\}/g, "")
+    .replace(/if\s*\(\s*typeof\s+globalThis\s*!==\s*["']undefined["']\s*\)\s*\{[\s\S]*?\n\}/g, "")
     .replace(/module\.exports\s*=\s*\{[^}]*\};?/g, "")
     .trim();
 }
 
-const bundled = `/**
- * AnimeSalt Nuvio Scraper Plugin
- * Compatible with Nuvio App (Mobile & Android TV) and All-in-One-Nuvio
- * Source: https://animesalt.cx/
- * Generated: ${new Date().toISOString()}
- */
+function prelude(needsCryptoJs) {
+  const lines = [
+    `var cheerio = typeof require !== 'undefined' ? require('cheerio-without-node-native') : (globalThis.cheerio || {});`
+  ];
+  if (needsCryptoJs) {
+    lines.push(`var CryptoJS = typeof require !== 'undefined' ? require('crypto-js') : (globalThis.CryptoJS || {});`);
+  }
+  return lines.join("\n");
+}
 
-var cheerio = typeof require !== 'undefined' ? require('cheerio-without-node-native') : (globalThis.cheerio || {});
-var CryptoJS = typeof require !== 'undefined' ? require('crypto-js') : (globalThis.CryptoJS || {});
-
-// --- Constants & Utilities ---
-${stripCommonJs(constantsCode)}
-
-// --- TMDB Resolver ---
-${stripCommonJs(tmdbCode)}
-
-// --- Search Engine ---
-${stripCommonJs(searchCode)}
-
-// --- Episode / Movie Resolver ---
-${stripCommonJs(episodesCode)}
-
-// --- Embed Extractors ---
-${stripCommonJs(awsstreamCode)}
-
-${stripCommonJs(streamwishCode)}
-
-${stripCommonJs(megaplayCode)}
-
-${stripCommonJs(multilangCode)}
-
-// --- Main Scraper Entrypoint ---
-${stripCommonJs(indexCode)}
-
+const UMD_FOOTER = `
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { getStreams };
 }
@@ -72,5 +38,63 @@ if (typeof globalThis !== 'undefined') {
 }
 `;
 
-fs.writeFileSync(OUT_FILE, bundled, "utf8");
-console.log(`Bundle generated successfully at: ${OUT_FILE} (${bundled.length} bytes)`);
+function bundleProvider({ id, sources, outFile, header, needsCryptoJs }) {
+  const parts = sources.map((rel) =>
+    stripCommonJs(fs.readFileSync(path.join(SRC, rel), "utf8"))
+  );
+  const bundled = `${header}\n\n${prelude(needsCryptoJs)}\n\n${parts.join("\n\n")}\n${UMD_FOOTER}`;
+  fs.writeFileSync(outFile, bundled, "utf8");
+  console.log(`Bundle ${id} → ${outFile} (${bundled.length} bytes)`);
+}
+
+const SHARED = [
+  "shared/constants.js",
+  "shared/formatter.js",
+  "shared/tmdb.js"
+];
+
+bundleProvider({
+  id: "animesalt",
+  needsCryptoJs: true,
+  header: `/**
+ * AnimeSalt Nuvio Scraper Plugin
+ * Compatible with Nuvio App (Mobile & Android TV) and All-in-One-Nuvio
+ * Source: https://animesalt.cx/
+ * Generated: ${new Date().toISOString()}
+ */`,
+  sources: [
+    ...SHARED,
+    "providers/animesalt/constants.js",
+    "providers/animesalt/search.js",
+    "providers/animesalt/episodes.js",
+    "providers/animesalt/extractors/awsstream.js",
+    "providers/animesalt/extractors/streamwish.js",
+    "providers/animesalt/extractors/megaplay.js",
+    "providers/animesalt/extractors/multilang.js",
+    "providers/animesalt/index.js"
+  ],
+  outFile: path.join(DIST_DIR, "animesalt.js")
+});
+
+bundleProvider({
+  id: "multimovies",
+  needsCryptoJs: false,
+  header: `/**
+ * MultiMovies Nuvio Scraper Plugin
+ * Compatible with Nuvio App (Mobile & Android TV) and All-in-One-Nuvio
+ * Source: https://multimovies.wtf/ (resolves to current mirror)
+ * Generated: ${new Date().toISOString()}
+ */`,
+  sources: [
+    ...SHARED,
+    "providers/multimovies/constants.js",
+    "providers/multimovies/search.js",
+    "providers/multimovies/extractors/vidrift.js",
+    "providers/multimovies/extractors/vidout.js",
+    "providers/multimovies/extractors/cineverse.js",
+    "providers/multimovies/extractors/vidbolt.js",
+    "providers/multimovies/extractors/filmu.js",
+    "providers/multimovies/index.js"
+  ],
+  outFile: path.join(DIST_DIR, "multimovies.js")
+});

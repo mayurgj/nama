@@ -1,4 +1,4 @@
-const { warn } = require("../constants");
+const { warn } = require("../../../shared/constants");
 const { extractAwsStream } = require("./awsstream");
 const { extractStreamWish } = require("./streamwish");
 const { extractMegaPlay } = require("./megaplay");
@@ -29,11 +29,6 @@ const LANG_ROUTES = [
   }
 ];
 
-/**
- * Extract streams from the base64-encoded JSON used by the multi-lang-plyr embed.
- * @param {string} dataParam
- * @returns {Promise<Array<import("../index").Stream>>}
- */
 async function extractMultiLang(dataParam) {
   try {
     let decodedStr = "";

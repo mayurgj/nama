@@ -1,5 +1,6 @@
 const cheerio = require("cheerio-without-node-native");
-const { MAIN_URL, HEADERS, cleanTitle, titleSimilarity, joinUrl, warn } = require("./constants");
+const { HEADERS, cleanTitle, titleSimilarity, joinUrl, warn } = require("../../shared/constants");
+const { MAIN_URL } = require("./constants");
 
 function parseResults($, selector) {
   const out = [];
@@ -40,11 +41,9 @@ async function searchAjax(query) {
       },
       body
     });
-
     if (!res.ok) return [];
     const json = await res.json();
-    if (!json?.success || !json?.data?.content) return [];
-
+    if (!json || !json.success || !json.data || !json.data.content) return [];
     const $ = cheerio.load(json.data.content);
     return parseResults($, "article, li");
   } catch (e) {
@@ -53,10 +52,6 @@ async function searchAjax(query) {
   }
 }
 
-// ToroFilm's direct ?s= search covers almost all queries and is one request;
-// the admin-ajax infinite-scroll endpoint is kept as a fallback for the
-// occasional case where the theme's archive query returns empty but the
-// ajax query still finds the post (e.g. draft slugs that leaked into feeds).
 async function searchAnimeSalt(query) {
   const direct = await searchDirect(query);
   if (direct.length > 0) return direct;
@@ -75,10 +70,6 @@ async function tryQueries(queries) {
 async function findBestMatch(tmdbDetails, mediaType) {
   if (!tmdbDetails || !tmdbDetails.title) return null;
 
-  // Build a single ordered query list so the fallback behaviour is explicit:
-  //   1. the TMDB primary title
-  //   2. its cleaned form (strip punctuation, collapse whitespace)
-  //   3. up to three TMDB aliases (and their cleaned forms)
   const seen = new Set();
   const queries = [];
   const push = (q) => {
@@ -112,16 +103,12 @@ async function findBestMatch(tmdbDetails, mediaType) {
 
   for (const item of unique) {
     let score = titleSimilarity(tmdbDetails.title, item.title);
-
-    if (score < 0.9 && tmdbDetails.aliases?.length) {
+    if (score < 0.9 && tmdbDetails.aliases && tmdbDetails.aliases.length) {
       for (const alias of tmdbDetails.aliases) {
         const aliasScore = titleSimilarity(alias, item.title);
-        if (aliasScore > score) {
-          score = aliasScore;
-        }
+        if (aliasScore > score) score = aliasScore;
       }
     }
-
     if (mediaType === "movie") {
       if (item.href.includes("/movies/")) score += 0.15;
       if (item.href.includes("/series/")) score -= 0.1;
@@ -129,7 +116,6 @@ async function findBestMatch(tmdbDetails, mediaType) {
       if (item.href.includes("/series/")) score += 0.15;
       if (item.href.includes("/movies/")) score -= 0.1;
     }
-
     if (score > highestScore) {
       highestScore = score;
       bestMatch = item;

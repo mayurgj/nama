@@ -4,7 +4,8 @@ const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
 const MANIFEST_PATH = path.join(ROOT, "manifest.json");
-const BUNDLE_PATH = path.join(ROOT, "providers", "animesalt.js");
+const ANIMESALT_BUNDLE = path.join(ROOT, "providers", "animesalt.js");
+const MULTIMOVIES_BUNDLE = path.join(ROOT, "providers", "multimovies.js");
 
 // ---------- minimal test harness (serial async queue) ----------
 let passed = 0;
@@ -91,8 +92,8 @@ test("manifest contains multimovies scraper entry", () => {
   assert(fs.existsSync(path.join(ROOT, mm.filename)), "multimovies provider file exists");
 });
 
-// ---------- 2. Utility functions ----------
-section("utils");
+// ---------- 2. Shared utilities ----------
+section("shared/constants");
 const {
   cleanTitle,
   titleSimilarity,
@@ -100,11 +101,11 @@ const {
   isRealStreamUrl,
   joinUrl,
   validateEpisodeInput,
-  parseQualityFromUrl,
   heightToQuality,
   parseHlsMaster,
-  hlsAudioTrackCount
-} = require("../src/constants");
+  hlsAudioTrackCount,
+  RESOLUTION_ORDER
+} = require("../src/shared/constants");
 
 test("cleanTitle strips punctuation and lowercases", () => {
   assert.strictEqual(cleanTitle("Naruto: Shippuuden!"), "naruto shippuuden");
@@ -162,18 +163,18 @@ test("validateEpisodeInput accepts positive ints and rejects garbage", () => {
   assert.strictEqual(validateEpisodeInput(10000, 1), null);
 });
 
-test("heightToQuality maps pixel heights to labels", () => {
-  assert.strictEqual(heightToQuality(2160), "4K");
+test("heightToQuality maps pixel heights to canonical labels", () => {
+  assert.strictEqual(heightToQuality(2160), "2160p");
   assert.strictEqual(heightToQuality(1440), "1440p");
   assert.strictEqual(heightToQuality(1080), "1080p");
   assert.strictEqual(heightToQuality(720), "720p");
   assert.strictEqual(heightToQuality(480), "480p");
   assert.strictEqual(heightToQuality(240), "240p");
-  assert.strictEqual(heightToQuality(0), "Auto");
-  assert.strictEqual(heightToQuality(NaN), "Auto");
+  assert.strictEqual(heightToQuality(0), null);
+  assert.strictEqual(heightToQuality(NaN), null);
 });
 
-test("parseHlsMaster extracts variants and carries master query", () => {
+test("parseHlsMaster extracts variants with resolution label", () => {
   const master = "https://cdn.example/hls/abc/master.m3u8?md5=TOKEN&expires=99";
   const body = [
     "#EXTM3U",
@@ -184,9 +185,10 @@ test("parseHlsMaster extracts variants and carries master query", () => {
   ].join("\n");
   const variants = parseHlsMaster(body, master);
   assert.strictEqual(variants.length, 2);
-  assert.strictEqual(variants[0].quality, "1080p");
+  assert.strictEqual(variants[0].resolution, "1080p");
+  assert.strictEqual(variants[0].height, 1080);
   assert.ok(variants[0].url.endsWith("1080/index.m3u8?md5=TOKEN&expires=99"));
-  assert.strictEqual(variants[1].quality, "720p");
+  assert.strictEqual(variants[1].resolution, "720p");
 });
 
 test("parseHlsMaster returns [] for empty or non-string input", () => {
@@ -206,38 +208,48 @@ test("hlsAudioTrackCount counts EXT-X-MEDIA audio entries", () => {
   assert.strictEqual(hlsAudioTrackCount(null), 0);
 });
 
-test("parseQualityFromUrl recognises common markers", () => {
-  assert.strictEqual(parseQualityFromUrl("https://x/stream/1080p/index.m3u8"), "1080p");
-  assert.strictEqual(parseQualityFromUrl("https://x/stream/720/index.m3u8"), "720p");
-  assert.strictEqual(parseQualityFromUrl("https://x/video_2160.mp4"), "4K");
-  assert.strictEqual(parseQualityFromUrl("https://x/video.4k.mp4"), "4K");
-  assert.strictEqual(parseQualityFromUrl("https://x/no-marker/master.m3u8"), "Auto");
-  assert.strictEqual(parseQualityFromUrl(null), "Auto");
-  assert.strictEqual(parseQualityFromUrl(""), "Auto");
+test("RESOLUTION_ORDER sorts descending", () => {
+  assert(RESOLUTION_ORDER["2160p"] > RESOLUTION_ORDER["1080p"]);
+  assert(RESOLUTION_ORDER["1080p"] > RESOLUTION_ORDER["720p"]);
+  assert(RESOLUTION_ORDER["720p"] > RESOLUTION_ORDER["480p"]);
 });
 
 // ---------- 3. Exports ----------
 section("exports");
-const srcProvider = require("../src/index");
-test("src/index exports getStreams", () => {
-  assert.strictEqual(typeof srcProvider.getStreams, "function");
+const animesaltProvider = require("../src/providers/animesalt");
+test("src/providers/animesalt exports getStreams", () => {
+  assert.strictEqual(typeof animesaltProvider.getStreams, "function");
 });
-if (fs.existsSync(BUNDLE_PATH)) {
-  // Clear require cache: the bundle may have been rebuilt since last run.
-  delete require.cache[require.resolve(BUNDLE_PATH)];
-  const bundleProvider = require(BUNDLE_PATH);
-  test("bundle exports getStreams", () => {
-    assert.strictEqual(typeof bundleProvider.getStreams, "function");
+const multimoviesProvider = require("../src/providers/multimovies");
+test("src/providers/multimovies exports getStreams", () => {
+  assert.strictEqual(typeof multimoviesProvider.getStreams, "function");
+});
+
+if (fs.existsSync(ANIMESALT_BUNDLE)) {
+  delete require.cache[require.resolve(ANIMESALT_BUNDLE)];
+  const bundle = require(ANIMESALT_BUNDLE);
+  test("animesalt bundle exports getStreams", () => {
+    assert.strictEqual(typeof bundle.getStreams, "function");
   });
 } else {
-  skip("bundle exports getStreams", "run `node build.js` to generate providers/animesalt.js");
+  skip("animesalt bundle exports getStreams", "run `node build.js`");
+}
+
+if (fs.existsSync(MULTIMOVIES_BUNDLE)) {
+  delete require.cache[require.resolve(MULTIMOVIES_BUNDLE)];
+  const bundle = require(MULTIMOVIES_BUNDLE);
+  test("multimovies bundle exports getStreams", () => {
+    assert.strictEqual(typeof bundle.getStreams, "function");
+  });
+} else {
+  skip("multimovies bundle exports getStreams", "run `node build.js`");
 }
 
 // ---------- 4. Extractor negative paths (mocked fetch) ----------
-section("extractors (mocked)");
-const { extractStreamWish } = require("../src/extractors/streamwish");
-const { extractMegaPlay } = require("../src/extractors/megaplay");
-const { extractAwsStream } = require("../src/extractors/awsstream");
+section("animesalt extractors (mocked)");
+const { extractStreamWish } = require("../src/providers/animesalt/extractors/streamwish");
+const { extractMegaPlay } = require("../src/providers/animesalt/extractors/megaplay");
+const { extractAwsStream } = require("../src/providers/animesalt/extractors/awsstream");
 
 test("extractStreamWish returns null when response is not ok", () =>
   withFetch(() => mockRes({ ok: false, status: 404 }), async () => {
@@ -275,35 +287,27 @@ test("extractAwsStream handles network errors gracefully", () =>
     assert.deepStrictEqual(r, []);
   }));
 
-// ---------- 4b. MultiMovies provider (mocked fetch) ----------
+// ---------- 5. MultiMovies end-to-end (mocked fetch) ----------
 section("multimovies (mocked)");
-delete require.cache[require.resolve("../providers/multimovies")];
-const mmProvider = require("../providers/multimovies");
-
-test("multimovies exports getStreams", () => {
-  assert.strictEqual(typeof mmProvider.getStreams, "function");
-});
 
 test("multimovies getStreams rejects missing tmdbId", async () => {
-  assert.deepStrictEqual(await mmProvider.getStreams(null, "movie"), []);
-  assert.deepStrictEqual(await mmProvider.getStreams(undefined, "movie"), []);
+  assert.deepStrictEqual(await multimoviesProvider.getStreams(null, "movie"), []);
+  assert.deepStrictEqual(await multimoviesProvider.getStreams(undefined, "movie"), []);
 });
 
 test("multimovies getStreams rejects invalid tv season/episode", async () => {
-  assert.deepStrictEqual(await mmProvider.getStreams(1234139, "tv", 0, 1), []);
-  assert.deepStrictEqual(await mmProvider.getStreams(1234139, "tv", 1, 0), []);
-  assert.deepStrictEqual(await mmProvider.getStreams(1234139, "tv", "a", "b"), []);
+  assert.deepStrictEqual(await multimoviesProvider.getStreams(1234139, "tv", 0, 1), []);
+  assert.deepStrictEqual(await multimoviesProvider.getStreams(1234139, "tv", 1, 0), []);
+  assert.deepStrictEqual(await multimoviesProvider.getStreams(1234139, "tv", "a", "b"), []);
 });
 
 test("multimovies getStreams returns [] when TMDB lookup fails", () =>
   withFetch(() => mockRes({ ok: false, status: 500 }), async () => {
-    const r = await mmProvider.getStreams(1234139, "movie");
+    const r = await multimoviesProvider.getStreams(1234139, "movie");
     assert.deepStrictEqual(r, []);
   }));
 
 test("multimovies end-to-end movie flow with mocked network", () => {
-  // Script the full pipeline: TMDB → mirror pointer → search → movie page
-  // (with watchConfig listing Vidrift+VIDOUT+Cineverse) → per-embed extractors.
   const vidriftHtml = `<html><body><script>
     var embedMeta = {
       "orionStreams":[
@@ -370,25 +374,59 @@ test("multimovies end-to-end movie flow with mocked network", () => {
     }
     return mockRes({ ok: false, status: 404 });
   }, async () => {
-    const streams = await mmProvider.getStreams(1234139, "movie");
+    const streams = await multimoviesProvider.getStreams(1234139, "movie");
     assert(Array.isArray(streams) && streams.length >= 5, "expected >=5 streams, got " + streams.length);
-    const providers = streams.map((s) => s.name);
-    assert(providers.some((n) => n.includes("Vidrift")), "has Vidrift stream");
-    assert(providers.some((n) => n.includes("Cineverse")), "has Cineverse stream");
-    assert(providers.some((n) => n.includes("VIDOUT")), "has VIDOUT stream");
-    assert(providers.some((n) => n.includes("VidBolt")), "has VidBolt stream");
-    assert(providers.some((n) => n.includes("Filmu")), "has Filmu stream");
+
+    // Structured-shape invariants: every stream has the schema fields,
+    // nothing has the legacy `name` key.
     streams.forEach((s) => {
       assert(s.url && s.url.indexOf("http") === 0, "stream has http(s) url");
       assert.strictEqual(s.provider, "multimovies");
       assert.strictEqual(s.type, "m3u8");
+      assert.strictEqual(s.name, undefined, "legacy name field must be absent");
+      assert(Array.isArray(s.visualTags), "visualTags array");
+      assert(Array.isArray(s.audioTags), "audioTags array");
+      assert(Array.isArray(s.audioChannels), "audioChannels array");
+      assert(Array.isArray(s.languages), "languages array");
+      assert(Array.isArray(s.subtitles), "subtitles array");
       assert(s.headers && s.headers["User-Agent"], "stream carries UA header");
     });
-    // Streams must be sorted by quality (1080p ≥ 720p ≥ Auto)
-    const qOrder = { "4K": 6, "1440p": 5, "1080p": 4, "720p": 3, "480p": 2, "360p": 1, "Auto": 0 };
+
+    // Specific extractor outputs are present and parsed correctly.
+    const vidrift = streams.filter((s) => /vidrift/i.test(s.url) || /hls\/(?:abc|hin)/.test(s.url));
+    assert(vidrift.length >= 2, "has >=2 Vidrift streams");
+
+    const vidbolt = streams.filter((s) => /proxy\.vidbolt/.test(s.url));
+    assert.strictEqual(vidbolt.length, 2, "has 2 VidBolt streams");
+    const vidboltResolutions = vidbolt.map((s) => s.resolution).sort();
+    assert.deepStrictEqual(vidboltResolutions, ["1080p", "720p"]);
+    const vidboltLanguages = new Set();
+    vidbolt.forEach((s) => s.languages.forEach((l) => vidboltLanguages.add(l)));
+    assert(vidboltLanguages.has("ta"), "VidBolt Tamil mapped to 'ta'");
+    assert(vidboltLanguages.has("hi"), "VidBolt Hindi mapped to 'hi'");
+
+    const vidout = streams.find((s) => /vidout\/jailer2/.test(s.url));
+    assert(vidout, "has VIDOUT stream");
+    assert.strictEqual(vidout.resolution, "720p");
+    assert.deepStrictEqual(vidout.languages, ["multi"]);
+
+    const cineverse = streams.find((s) => /XYZCODE1/.test(s.url));
+    assert(cineverse, "has Cineverse stream");
+    assert.strictEqual(cineverse.resolution, "1080p");
+    assert.strictEqual(cineverse.encode, "x265");
+    assert(cineverse.languages.includes("hi") && cineverse.languages.includes("ta"),
+      "Cineverse parsed Hindi+Tamil from vidara title");
+
+    const filmu = streams.find((s) => /streamrip\.fun/.test(s.url));
+    assert(filmu, "has Filmu stream");
+
+    // Sort order: resolution descending via RESOLUTION_ORDER
     for (let i = 1; i < streams.length; i++) {
-      assert((qOrder[streams[i - 1].quality] || 0) >= (qOrder[streams[i].quality] || 0),
-        "streams not quality-sorted");
+      const prev = RESOLUTION_ORDER[streams[i - 1].resolution];
+      const curr = RESOLUTION_ORDER[streams[i].resolution];
+      const prevVal = prev != null ? prev : -1;
+      const currVal = curr != null ? curr : -1;
+      assert(prevVal >= currVal, "streams not resolution-sorted");
     }
   });
 });
@@ -410,30 +448,30 @@ test("multimovies getStreams returns [] when watchConfig is absent", () => {
     }
     return mockRes({ ok: false, status: 404 });
   }, async () => {
-    const streams = await mmProvider.getStreams(1234139, "movie");
+    const streams = await multimoviesProvider.getStreams(1234139, "movie");
     assert.deepStrictEqual(streams, []);
   });
 });
 
-// ---------- 5. getStreams input validation ----------
-section("getStreams validation");
-test("getStreams rejects missing tmdbId", async () => {
-  assert.deepStrictEqual(await srcProvider.getStreams(null, "movie"), []);
-  assert.deepStrictEqual(await srcProvider.getStreams(undefined, "movie"), []);
+// ---------- 6. getStreams input validation (animesalt) ----------
+section("animesalt getStreams validation");
+test("animesalt getStreams rejects missing tmdbId", async () => {
+  assert.deepStrictEqual(await animesaltProvider.getStreams(null, "movie"), []);
+  assert.deepStrictEqual(await animesaltProvider.getStreams(undefined, "movie"), []);
 });
 
-test("getStreams rejects invalid season/episode for tv", async () => {
-  assert.deepStrictEqual(await srcProvider.getStreams(1, "tv", 0, 1), []);
-  assert.deepStrictEqual(await srcProvider.getStreams(1, "tv", 1, 0), []);
-  assert.deepStrictEqual(await srcProvider.getStreams(1, "tv", "a", "b"), []);
+test("animesalt getStreams rejects invalid season/episode for tv", async () => {
+  assert.deepStrictEqual(await animesaltProvider.getStreams(1, "tv", 0, 1), []);
+  assert.deepStrictEqual(await animesaltProvider.getStreams(1, "tv", 1, 0), []);
+  assert.deepStrictEqual(await animesaltProvider.getStreams(1, "tv", "a", "b"), []);
 });
 
-// ---------- 6. Network-backed tests (optional) ----------
+// ---------- 7. Network-backed tests (optional) ----------
 section("network (optional, --network to enable)");
 const runNetwork = process.argv.includes("--network") || process.env.NUVIO_RUN_NETWORK === "1";
 
 async function runNetworkSuite() {
-  const { fetchTmdbDetails } = require("../src/tmdb");
+  const { fetchTmdbDetails } = require("../src/shared/tmdb");
   test("TMDB tv fetch", async () => {
     const tv = await fetchTmdbDetails(85937, "tv");
     assert(tv && tv.title && tv.title.length > 0, "expected tv title");
@@ -442,8 +480,8 @@ async function runNetworkSuite() {
     const mv = await fetchTmdbDetails(372058, "movie");
     assert(mv && mv.title && mv.title.length > 0, "expected movie title");
   });
-  test("getStreams returns array end-to-end", async () => {
-    const streams = await srcProvider.getStreams(85937, "tv", 1, 1);
+  test("animesalt getStreams returns array end-to-end", async () => {
+    const streams = await animesaltProvider.getStreams(85937, "tv", 1, 1);
     assert(Array.isArray(streams), "must return array");
   });
 }
@@ -453,7 +491,7 @@ if (runNetwork) {
 } else {
   skip("TMDB tv fetch", "pass --network or NUVIO_RUN_NETWORK=1");
   skip("TMDB movie fetch", "pass --network or NUVIO_RUN_NETWORK=1");
-  skip("getStreams returns array end-to-end", "pass --network or NUVIO_RUN_NETWORK=1");
+  skip("animesalt getStreams returns array end-to-end", "pass --network or NUVIO_RUN_NETWORK=1");
 }
 
 runQueue().then(() => {
