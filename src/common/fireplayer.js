@@ -97,14 +97,14 @@ function fpStreams(emb, site, meta) {
       });
       var base = { site: site, meta: meta, host: emb.host, audios: audios, headers: headers };
       if (PER_RES_MODE === "master" || !parsed.variants.length) {
-        var heights = parsed.variants
-          .map(function (v) {
-            return v.height;
-          })
-          .filter(function (h) {
-            return WANTED_HEIGHTS.indexOf(h) >= 0;
-          });
-        return [namaFormatStream(base, masterUrl, heights.length ? heights : [0])];
+        var wanted = parsed.variants.filter(function (v) {
+          return WANTED_HEIGHTS.indexOf(v.height) >= 0;
+        });
+        var heights = wanted.map(function (v) {
+          return v.height;
+        });
+        var inf = (wanted[0] || parsed.variants[0] || {}).inf;
+        return [namaFormatStream(base, masterUrl, heights.length ? heights : [0], inf)];
       }
       var streams = [];
       var heightsWanted = WANTED_HEIGHTS.filter(function (h) {
@@ -129,12 +129,12 @@ function fpStreams(emb, site, meta) {
         })[0];
         if (!v) return;
         var url = "data:application/vnd.apple.mpegurl;base64," + namaBase64(fpBuildPlaylist(parsed, v));
-        streams.push(namaFormatStream(base, url, [h]));
+        streams.push(namaFormatStream(base, url, [h], v.inf));
         if (!PER_LANGUAGE || audios.length < 2) return;
         audios.forEach(function (a) {
           var one = Object.assign({}, base, { audios: [a], perLanguage: true });
           var langUrl = "data:application/vnd.apple.mpegurl;base64," + namaBase64(fpBuildPlaylist(parsed, v, a));
-          streams.push(namaFormatStream(one, langUrl, [h]));
+          streams.push(namaFormatStream(one, langUrl, [h], v.inf));
         });
       });
       return streams;

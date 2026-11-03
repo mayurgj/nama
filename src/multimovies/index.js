@@ -215,7 +215,7 @@ function mmStreamsFromParsed(parsed, ctx) {
       return x.height === h;
     })[0];
     var url = "data:application/vnd.apple.mpegurl;base64," + namaBase64(fpBuildPlaylist(parsed, v));
-    return namaFormatStream(base, url, [h]);
+    return namaFormatStream(base, url, [h], v.inf);
   });
 }
 
@@ -273,7 +273,7 @@ function mmMergeAudio(list, ctx) {
       var iso = x.iso || (a && a.lang) || "";
       if (!a || !x.parsed.variants[0].inf.match(/AUDIO="/) || seen[iso || x.src.url]) return;
       seen[iso || x.src.url] = true;
-      cands.push({ x: x, iso: iso, uri: fpAttr(a.line, "URI"), name: x.iso ? mmLangName(x.iso) : x.src.label || a.name || "Audio" });
+      cands.push({ x: x, iso: iso, uri: fpAttr(a.line, "URI"), channels: fpAttr(a.line, "CHANNELS"), name: x.iso ? mmLangName(x.iso) : x.src.label || a.name || "Audio" });
     });
   if (!cands.length) return mmStreamsFromParsed(list[0].parsed, ctx);
   cands = cands.slice(0, MM_MAX_AUDIO + 2);
@@ -301,7 +301,8 @@ function mmMergeAudio(list, ctx) {
     keep.forEach(function (c, i) {
       var line =
         '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="mmaud",NAME="' + c.name + '",LANGUAGE="' + (c.iso || "und") +
-        '",DEFAULT=' + (i ? "NO" : "YES") + ',AUTOSELECT=YES,URI="' + c.uri + '"';
+        '",DEFAULT=' + (i ? "NO" : "YES") + ',AUTOSELECT=YES' +
+        (c.channels ? ',CHANNELS="' + c.channels + '"' : "") + ',URI="' + c.uri + '"';
       media.push({ line: line, type: "AUDIO", lang: c.iso, name: c.name });
     });
     var variants = base.variants.map(function (v) {
@@ -313,12 +314,8 @@ function mmMergeAudio(list, ctx) {
 
 function mmMp4Stream(url, label, height, ctx) {
   var iso = mmLangOf(label, ctx.meta);
-  var c = Object.assign({}, ctx, { audios: iso ? [{ lang: iso, name: mmLangName(iso) }] : [] });
-  var s = namaFormatStream(c, url, [height || 0]);
-  s.type = "mp4";
-  s.size = s.size.replace(/^HLS/, "MP4");
-  s.title = s.title.replace("• HLS", "• MP4");
-  return s;
+  var c = Object.assign({}, ctx, { audios: iso ? [{ lang: iso, name: mmLangName(iso) }] : [], format: "MP4" });
+  return namaFormatStream(c, url, [height || 0]);
 }
 
 function mmQualityHeight(q) {

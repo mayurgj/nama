@@ -3,6 +3,22 @@
 ## Streams
 Each server gives two streams, **1080p** and **720p**. Each stream carries **every audio language**, which you switch in Nuvio's player.
 
+## Stream card
+Built by `namaFormatStream` in `src/common/format.js`:
+
+```
+1080p | Multi Audio                 name (single language: "1080p | Hindi")
+🎧 HIN • TAM • TEL • ENG • JPN      multi-audio streams only
+📺 HLS • AVC • AAC 2.0              codecs from the variant's CODECS, channels from the audio CHANNELS
+🌐 AnimeSalt | ravok.buzz           provider | stream server
+```
+
+Nuvio shows `name` in bold and the `size` field as the grey lines (`title` is not shown).
+Nuvio has no badges of its own: users import regex badge packs that scan the name and description.
+The wording above is picked so those packs match: `1080p`/`720p`, `Multi Audio`, full language
+names, ISO 639-2 codes (`HIN`, `ENG`, `JPN`), `AVC`/`HEVC`, `AAC`, `2.0`/`5.1`. Keep that in mind
+when changing the text. `node test/run.js` checks the resolution and multi-audio wording.
+
 ## MultiMovies
 The domain rotates, so each lookup reads the current mirror from the "Visit MultiMovies" button on
 `multimovies.wtf` (falling back to `m1.multimovies.courses`). A title is found with the site's `/api/search`,

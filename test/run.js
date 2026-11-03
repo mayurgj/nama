@@ -52,7 +52,7 @@ async function checkStream(st) {
   const audios = pl.split("\n").filter((l) => l.includes("TYPE=AUDIO"));
   if (!pl.startsWith("#EXTM3U")) problems.push("no #EXTM3U");
   if (infs.length !== 1) problems.push(infs.length + " STREAM-INF lines");
-  if (!infs[0] || !infs[0].includes("x" + parseInt(/\| (\d+)p/.exec(st.name)[1]))) problems.push("resolution mismatch");
+  if (!infs[0] || !infs[0].includes("x" + parseInt(/^(\d+)p/.exec(st.name)[1]))) problems.push("resolution mismatch");
   // Muxed audio (no AUDIO group on the variant) is fine too.
   if (!audios.length && infs[0] && infs[0].includes("AUDIO=")) problems.push("no audio renditions");
   const uris = pl.split("\n").filter((l) => l && !l.startsWith("#")).concat(audios.slice(0, 1).map((l) => /URI="([^"]+)"/.exec(l)[1]));
@@ -62,6 +62,17 @@ async function checkStream(st) {
     const t = await r.text();
     if (!r.ok || !t.startsWith("#EXTM3U")) problems.push("HTTP " + r.status + " for " + u.slice(0, 60));
   }
+  return problems;
+}
+
+// The card text must stay matchable by Nuvio badge packs (eclipsia-style regexes).
+function checkBadges(st) {
+  const text = st.name + " " + st.size;
+  const problems = [];
+  const res = /^(\d+)p/.exec(st.name);
+  if (res && !new RegExp("\\b" + res[1] + "p\\b", "i").test(text)) problems.push("no resolution badge text");
+  const multi = /^🎧 (.+)$/m.exec(st.size);
+  if (multi && !/(?<![^\s\[(_\-.,])(multi)(?=[\s\)\]_.\-,]|$)/i.test(text)) problems.push("no multi badge text");
   return problems;
 }
 
@@ -78,7 +89,7 @@ async function checkStream(st) {
       if (!streams.length) failed++;
       for (const st of streams) {
         console.log(`${st.name}\n${st.size}`);
-        const problems = await checkStream(st);
+        const problems = checkBadges(st).concat(await checkStream(st));
         console.log(problems.length ? "  ✗ " + problems.join("; ") : "  ✓ playlist OK");
         if (problems.length) failed++;
       }
