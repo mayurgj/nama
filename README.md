@@ -29,6 +29,18 @@ Servers that list each dub as a separate source (Vidrift, VidBolt, Filmu, Nexus)
 every dub as an audio track, keeping only dubs whose length matches (another cut would drift). Each server gives
 one stream per resolution (1080p, 720p) with all its audio languages, and no per-language streams.
 
+## Sorting
+Streams are sorted by the keys in `NAMA_SORT` (`src/common/format.js`), most important first:
+
+| Key | Order |
+|---|---|
+| `resolution` | 1080p before 720p |
+| `multi` | more audio languages first, so multi-audio comes before single-language |
+| `language` | streams that have a language earlier in `NAMA_LANG_ORDER` first (HI, TA, TE, ML, BN, KN, MR, EN, JA, KO, ZH) |
+
+The default is `["resolution", "multi", "language"]`. Reorder or drop keys, or reorder `NAMA_LANG_ORDER`
+(for example Tamil first), then rebuild. Ties keep the provider's own order.
+
 ## Install in Nuvio
 Settings → Plugins (Local Scrapers) → add repository:
 
