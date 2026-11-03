@@ -53,10 +53,6 @@ function mmFetchPlaylist(url, headers) {
   return once().catch(once);
 }
 
-function mmHtmlDecode(s) {
-  return String(s || "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'");
-}
-
 // Balanced-brace JSON value that starts right after `marker`.
 function mmJsonAfter(text, marker) {
   var i = text.indexOf(marker);
@@ -579,86 +575,6 @@ function mmNexus(srv, ctx) {
     });
 }
 
-// IQSmart family (GD mirror, Filesforever): file slug -> embedhelper2 -> mirror hosts.
-var MM_IQ_HOSTS = ["smwh", "flls"];
-
-function mmIqHelper(playerBase, slug, ctx) {
-  return namaFetchJson(playerBase + "/embedhelper2.php", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Referer: playerBase + "/", Origin: playerBase },
-    body: "sid=" + slug + "&UserFavSite=&currentDomain=" + encodeURIComponent(JSON.stringify([namaHost(SITE.base), namaHost(playerBase)])),
-  }).then(function (d) {
-    var codes = JSON.parse(mmUtf8(mmB64Bytes(d.mresult || "")) || "{}");
-    var sources = d.sources || {};
-    return mmFirstOk(
-      MM_IQ_HOSTS.filter(function (k) {
-        return sources[k] && sources[k].siteUrl && codes[k] && /\/[ev]\/$/.test(sources[k].siteUrl);
-      }).map(function (k) {
-        return function () {
-          return mmPackedStreams(sources[k].siteUrl + codes[k], playerBase + "/", ctx);
-        };
-      })
-    );
-  });
-}
-
-function mmIqsmart(srv, ctx) {
-  return mmFetch(srv.url, { Referer: SITE.base + "/" }).then(function (page) {
-    function v(name) {
-      return (new RegExp("let " + name + ' = "([^"]*)"').exec(page.text) || [])[1] || "";
-    }
-    var api = v("api_url");
-    var player = v("player_base");
-    var qs = v("idType") + "=" + v("FinalID") + "&key=" + v("myKey");
-    var apiUrl = /myseriesapi/.test(page.text)
-      ? api + "/myseriesapi?" + qs.replace("&key", "&season=" + v("season") + "&epname=" + encodeURIComponent(v("epname")) + "&key")
-      : api + "/mymovieapi?" + qs;
-    return namaFetchJson(apiUrl, { headers: { Referer: srv.url } }).then(function (r) {
-      var slugs = (r.data || []).map(function (x) {
-        return x.fileslug;
-      });
-      return mmFirstOk(
-        slugs.slice(0, 2).map(function (slug) {
-          return function () {
-            return mmIqHelper(player, slug, ctx);
-          };
-        })
-      );
-    });
-  });
-}
-
-function mmFilesforever(srv, ctx) {
-  return mmFetch(srv.url, { Referer: SITE.base + "/" }).then(function (page) {
-    var sid = (/const sid = "([^"]+)"/.exec(page.text) || [])[1] || (/\/embed\/([^\/?#]+)/.exec(srv.url) || [])[1];
-    return mmIqHelper(namaOrigin(page.url), sid, ctx);
-  });
-}
-
-// Cineverse (modiplay): a switcher of StreamHG / EarnVids embeds.
-function mmCineverse(srv, ctx) {
-  return mmFetch(srv.url, { Referer: SITE.base + "/" }).then(function (page) {
-    var urls = [];
-    var re = /data-url="(https?:\/\/[^"]+)"/g;
-    var m;
-    while ((m = re.exec(page.text))) {
-      var u = mmHtmlDecode(m[1]);
-      if (urls.indexOf(u) < 0 && /\/(e|v|embed)\/[a-z0-9]+/i.test(u)) urls.push(u);
-    }
-    // StreamHG's own domain is bot-walled; EarnVids answers plain fetches.
-    urls.sort(function (a, b) {
-      return /shg\./.test(a) - /shg\./.test(b);
-    });
-    return mmFirstOk(
-      urls.map(function (u) {
-        return function () {
-          return mmPackedStreams(u, page.url, ctx);
-        };
-      })
-    );
-  });
-}
-
 // VIDOUT (vidout.pages.dev): stream links come from a GitHub-hosted catalogue.
 var MM_VIDOUT_DB = "https://raw.githubusercontent.com/Watchout2025/api/refs/heads/main/hls/";
 
@@ -685,14 +601,47 @@ function mmVidout(srv, ctx) {
   });
 }
 
+// Some hosts (StreamHG / EarnVids mirrors on TikTok's image CDN) disguise TS segments as PNGs:
+// a tiny image header, then the video. Web players strip it; app players fail, so such
+// streams are dropped. Checks the first 16 bytes of the first video segment.
+function mmDisguised(stream) {
+  if (!/^data:/.test(stream.url || "")) return Promise.resolve(false);
+  var lines = mmUtf8(mmB64Bytes(stream.url.split("base64,")[1] || "")).split("\n");
+  var i = lines.findIndex(function (l) {
+    return l.indexOf("#EXT-X-STREAM-INF") === 0;
+  });
+  var variant = i >= 0 ? (lines[i + 1] || "").trim() : "";
+  if (!variant) return Promise.resolve(false);
+  return namaFetchText(variant, { headers: stream.headers })
+    .then(function (text) {
+      var seg = text.split(/\r?\n/).filter(function (l) {
+        return l && l.charAt(0) !== "#";
+      })[0];
+      if (!seg) return false;
+      return fetch(namaResolveUrl(seg.trim(), variant), {
+        headers: Object.assign({ Range: "bytes=0-15" }, stream.headers),
+      })
+        .then(function (r) {
+          return r.arrayBuffer();
+        })
+        .then(function (buf) {
+          var b = new Uint8Array(buf);
+          var png = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+          var jpg = b[0] === 0xff && b[1] === 0xd8;
+          var gif = b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46;
+          return png || jpg || gif;
+        });
+    })
+    .catch(function () {
+      return false;
+    });
+}
+
 var MM_EXTRACTORS = [
   { test: /vidrift\./, run: mmVidrift },
   { test: /vidbolt\./, run: mmVidbolt },
   { test: /filmu\.|vidly\./, run: mmFilmu },
   { test: /moviesnexus\./, run: mmNexus },
-  { test: /iqsmartgames\.com\/embed\//, run: mmIqsmart },
-  { test: /filesforever\.|iqsmartgames\.com\/[se]vid\//, run: mmFilesforever },
-  { test: /modiplay\.|cineverse/, run: mmCineverse },
   { test: /vidout\./, run: mmVidout },
 ];
 
@@ -772,15 +721,12 @@ function mmCandidates(base, meta) {
 
 // Every server but the site's own mirrors takes TMDB ids, so when the title page can't be
 // found the list is built here (same URLs the site uses).
-var MM_IQ_KEY = "e11a7debaaa4f5d25b671706ffe4d2acb56efbd4";
-
 function mmDirectServers(meta) {
   var id = meta.tmdbId;
   var s = meta.season;
   var e = meta.episode;
   if (meta.type === "movie") {
     return [
-      { name: "Cineverse", url: "https://rozgarlelo.modiplay.xyz/embed/tmdb/movie?id=" + id },
       { name: "Nexus", url: "https://www.moviesnexus.fun/movie/" + id + "?sv=multi-audio" },
       { name: "Vidrift", url: "https://embed.vidrift.net/embed/movie/" + id },
       { name: "VIDOUT", url: "https://vidout.pages.dev/movie/" + id },
@@ -789,8 +735,6 @@ function mmDirectServers(meta) {
     ];
   }
   return [
-    { name: "Cineverse", url: "https://rozgarlelo.modiplay.xyz/embed/tmdb/tv?id=" + id + "&s=" + s + "&e=" + e },
-    { name: "GD mirror", url: "https://streams.iqsmartgames.com/embed/tv/" + id + "/" + s + "/" + e + "?key=" + MM_IQ_KEY },
     { name: "Nexus", url: "https://www.moviesnexus.fun/tv/" + id + "/" + s + "/" + e },
     { name: "Vidrift", url: "https://embed.vidrift.net/embed/tv/" + id + "/" + s + "/" + e },
     { name: "VIDOUT", url: "https://vidout.pages.dev/tv/" + id + "/s" + s + "/e" + e },
@@ -891,7 +835,12 @@ function getStreams(tmdbId, mediaType, season, episode) {
           var ctx = { site: SITE, server: srv.name, meta: meta, host: namaHost(srv.url), audios: [] };
           return mmTimeout(ex.run(srv, ctx), MM_SERVER_TIMEOUT)
             .then(function (streams) {
-              return mmBestPerHeight([streams]);
+              streams = mmBestPerHeight([streams]);
+              if (!streams.length) return streams;
+              return mmDisguised(streams[0]).then(function (bad) {
+                if (bad) console.log("[MultiMovies] " + srv.name + ": segments disguised as images, skipped");
+                return bad ? [] : streams;
+              });
             })
             .catch(function (e) {
               console.log("[MultiMovies] " + srv.name + ": " + (e && e.message));

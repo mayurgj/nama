@@ -1,6 +1,6 @@
 {
   "name": "NAMA",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Multi-audio Indian dub anime and movie providers (Hindi, Tamil, Telugu, Malayalam, Bengali, English, Japanese) in 1080p and 720p.",
   "author": "nama",
   "scrapers": [
@@ -8,7 +8,7 @@
       "id": "animesalt",
       "name": "AnimeSalt",
       "description": "animesalt.cx: multi-audio HI/TA/TE/EN/JA, 1080p and 720p HLS",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "author": "nama",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/animesalt.js",
@@ -21,7 +21,7 @@
       "id": "watchanimeworld",
       "name": "WatchAnimeWorld",
       "description": "watchanimeworld.one: multi-audio HI/TA/TE/ML/BN/EN/JA, 1080p and 720p HLS",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "author": "nama",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/watchanimeworld.js",
@@ -32,8 +32,8 @@
     {
       "id": "multimovies",
       "name": "MultiMovies",
-      "description": "MultiMovies (domain from multimovies.wtf): Vidrift, VidBolt, Filmu, Nexus, GD mirror, Filesforever, Cineverse, VIDOUT; multi-audio 1080p and 720p",
-      "version": "1.3.0",
+      "description": "MultiMovies (domain from multimovies.wtf): Vidrift, VidBolt, Filmu, Nexus, VIDOUT; multi-audio 1080p and 720p",
+      "version": "1.3.1",
       "author": "nama",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/multimovies.js",

@@ -8,6 +8,7 @@ Built by `namaFormatStream` in `src/common/format.js`:
 
 ```
 1080p | Multi Audio                 name (single language: "1080p | Hindi")
+🎬 Naruto | S01 E05                 title (cut at NAMA_TITLE_MAX = 32 chars); movies: title only
 🎧 HIN • TAM • TEL • ENG • JPN      multi-audio streams only
 📺 HLS • AVC • AAC 2.0              codecs from the variant's CODECS, channels from the audio CHANNELS
 🌐 AnimeSalt | ravok.buzz           provider | stream server
@@ -22,7 +23,7 @@ when changing the text. `node test/run.js` checks the resolution and multi-audio
 ## MultiMovies
 The domain rotates, so each lookup reads the current mirror from the "Visit MultiMovies" button on
 `multimovies.wtf` (falling back to `m1.multimovies.courses`). A title is found with the site's `/api/search`,
-and the watch page's `watchConfig.initialServers` lists the servers. Each server has its own extractor:
+and the watch page's `watchConfig.initialServers` lists the servers. Each server has its own extractor. GD mirror, Cineverse and Filesforever Mirror are not used: their StreamHG / EarnVids segments sit on TikTok's image CDN disguised as PNGs (a 70-byte image header, then MPEG-TS), which app players reject. `mmDisguised` also probes the first video segment of every remaining server and drops it when it is an image:
 
 | Server | How it resolves |
 |---|---|
@@ -30,8 +31,6 @@ and the watch page's `watchConfig.initialServers` lists the servers. Each server
 | VidBolt | `/api/resolve` |
 | Filmu | sealed stream list in the Next.js payload (vidly.pro) |
 | Nexus | server-action token + sha256 proof of work, then `/api/extract` |
-| GD mirror / IQSmart, Filesforever Mirror | iqsmart `embedhelper2` → StreamHG / EarnVids (packed JWPlayer) |
-| Cineverse | modiplay switcher → EarnVids / StreamHG |
 | VIDOUT | its GitHub catalogue (titles not listed there have no VIDOUT stream) |
 
 Servers that list each dub as a separate source (Vidrift, VidBolt, Filmu, Nexus) are merged: one video plus
