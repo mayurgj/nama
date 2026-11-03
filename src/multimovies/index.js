@@ -10,6 +10,8 @@ var MM_MAX_DRIFT = 3;
 // Some mirror CDNs never answer: give up on a mirror, and on a whole server, after this.
 var MM_MIRROR_TIMEOUT = 15000;
 var MM_SERVER_TIMEOUT = 30000;
+// Per playlist fetch: some proxy workers hang for over a minute.
+var MM_FETCH_TIMEOUT = 8000;
 
 var MM_LANG_ISO = {
   hindi: "hi", tamil: "ta", telugu: "te", malayalam: "ml", bengali: "bn", kannada: "kn",
@@ -18,6 +20,8 @@ var MM_LANG_ISO = {
   indonesian: "id", tagalog: "tl", filipino: "tl", portuguese: "pt", "brazilian portuguese": "pt",
   kurdish: "ku", german: "de", italian: "it", turkish: "tr", thai: "th", urdu: "ur",
   punjabi: "pa", gujarati: "gu", odia: "or", vietnamese: "vi", malay: "ms",
+  // Filmu's short labels.
+  esla: "es", ptbr: "pt",
 };
 
 function mmFetch(url, headers) {
@@ -39,6 +43,14 @@ function mmTimeout(promise, ms) {
       }, ms);
     }),
   ]);
+}
+
+// Playlist fetch with a timeout and one retry (proxy workers drop requests under load).
+function mmFetchPlaylist(url, headers) {
+  function once() {
+    return mmTimeout(namaFetchText(url, { headers: headers }), MM_FETCH_TIMEOUT);
+  }
+  return once().catch(once);
 }
 
 function mmHtmlDecode(s) {
@@ -173,7 +185,7 @@ function mmLangRank(iso) {
 }
 
 function mmPlaylistSeconds(url, headers) {
-  return namaFetchText(url, { headers: headers }).then(function (t) {
+  return mmFetchPlaylist(url, headers).then(function (t) {
     var sum = 0;
     var re = /#EXTINF:([0-9.]+)/g;
     var m;
@@ -213,7 +225,7 @@ function mmHlsStreams(sources, ctx) {
   var headers = ctx.headers;
   return Promise.all(
     sources.map(function (s) {
-      return namaFetchText(s.url, { headers: headers })
+      return mmFetchPlaylist(s.url, headers)
         .then(function (text) {
           var parsed = fpParseMaster(text, s.url);
           var iso = mmLangOf(s.label, ctx.meta);
@@ -261,10 +273,10 @@ function mmMergeAudio(list, ctx) {
       var iso = x.iso || (a && a.lang) || "";
       if (!a || !x.parsed.variants[0].inf.match(/AUDIO="/) || seen[iso || x.src.url]) return;
       seen[iso || x.src.url] = true;
-      cands.push({ x: x, iso: iso, uri: fpAttr(a.line, "URI"), name: x.iso ? mmLangName(x.iso) : a.name || "Audio" });
+      cands.push({ x: x, iso: iso, uri: fpAttr(a.line, "URI"), name: x.iso ? mmLangName(x.iso) : x.src.label || a.name || "Audio" });
     });
   if (!cands.length) return mmStreamsFromParsed(list[0].parsed, ctx);
-  cands = cands.slice(0, MM_MAX_AUDIO);
+  cands = cands.slice(0, MM_MAX_AUDIO + 2);
   return Promise.all(
     cands.map(function (c) {
       return mmPlaylistSeconds(c.uri, ctx.headers).catch(function () {
@@ -272,10 +284,15 @@ function mmMergeAudio(list, ctx) {
       });
     })
   ).then(function (secs) {
-    var baseSec = secs[0];
-    var keep = cands.filter(function (c, i) {
-      return secs[i] > 0 && Math.abs(secs[i] - baseSec) <= MM_MAX_DRIFT;
-    });
+    // The base is the first language whose audio loaded.
+    var baseSec = secs.filter(function (x) {
+      return x > 0;
+    })[0];
+    var keep = cands
+      .filter(function (c, i) {
+        return secs[i] > 0 && Math.abs(secs[i] - baseSec) <= MM_MAX_DRIFT;
+      })
+      .slice(0, MM_MAX_AUDIO);
     if (!keep.length) return [];
     var base = keep[0].x.parsed;
     var media = base.media.filter(function (m) {
@@ -713,8 +730,9 @@ function mmBase() {
 }
 
 function mmSearch(base, query) {
-  // The search is literal: "Your Name." finds nothing, "Your Name" does.
-  query = query.replace(/[^\w\s'&-]+/g, " ").replace(/\s+/g, " ").trim();
+  // The search is literal: "Your Name." and "Dead-End Job" find nothing,
+  // "Your Name" and "Dead End Job" do.
+  query = query.replace(/[^\w\s'&]+/g, " ").replace(/\s+/g, " ").trim();
   return namaFetchJson(base + "/api/search?q=" + encodeURIComponent(query) + "&limit=20").then(function (d) {
     var list = (d.movies || []).concat(d.tv_shows || []);
     if (!list.length && Array.isArray(d.results)) list = d.results;
@@ -753,6 +771,35 @@ function mmCandidates(base, meta) {
         return b.score - a.score;
       });
   });
+}
+
+// Every server but the site's own mirrors takes TMDB ids, so when the title page can't be
+// found the list is built here (same URLs the site uses).
+var MM_IQ_KEY = "e11a7debaaa4f5d25b671706ffe4d2acb56efbd4";
+
+function mmDirectServers(meta) {
+  var id = meta.tmdbId;
+  var s = meta.season;
+  var e = meta.episode;
+  if (meta.type === "movie") {
+    return [
+      { name: "Cineverse", url: "https://rozgarlelo.modiplay.xyz/embed/tmdb/movie?id=" + id },
+      { name: "Nexus", url: "https://www.moviesnexus.fun/movie/" + id + "?sv=multi-audio" },
+      { name: "Vidrift", url: "https://embed.vidrift.net/embed/movie/" + id },
+      { name: "VIDOUT", url: "https://vidout.pages.dev/movie/" + id },
+      { name: "Filmu", url: "https://embed.filmu.in/movie/" + id },
+      { name: "VidBolt", url: "https://vidbolt.xyz/movie/" + id },
+    ];
+  }
+  return [
+    { name: "Cineverse", url: "https://rozgarlelo.modiplay.xyz/embed/tmdb/tv?id=" + id + "&s=" + s + "&e=" + e },
+    { name: "GD mirror", url: "https://streams.iqsmartgames.com/embed/tv/" + id + "/" + s + "/" + e + "?key=" + MM_IQ_KEY },
+    { name: "Nexus", url: "https://www.moviesnexus.fun/tv/" + id + "/" + s + "/" + e },
+    { name: "Vidrift", url: "https://embed.vidrift.net/embed/tv/" + id + "/" + s + "/" + e },
+    { name: "VIDOUT", url: "https://vidout.pages.dev/tv/" + id + "/s" + s + "/e" + e },
+    { name: "Filmu", url: "https://embed.filmu.in/tv/" + id + "/" + s + "/" + e },
+    { name: "VidBolt", url: "https://vidbolt.xyz/tv/" + id + "/" + s + "/" + e },
+  ];
 }
 
 function mmWatchServers(pageUrl) {
@@ -833,6 +880,9 @@ function getStreams(tmdbId, mediaType, season, episode) {
     .then(function (base) {
       SITE.base = base;
       return mmFindServers(base, meta);
+    })
+    .then(function (servers) {
+      return servers.length ? servers : mmDirectServers(meta);
     })
     .then(function (servers) {
       return Promise.all(

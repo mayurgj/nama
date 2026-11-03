@@ -8,11 +8,14 @@ const CASES = [
   { label: "Naruto S01E058", id: "46260", type: "tv", s: 1, e: 58 },
   { label: "Demon Slayer: Infinity Castle", id: "1311031", type: "movie" },
   { label: "Your Name", id: "372058", type: "movie" },
+  // Korean drama with Indian dubs; TMDB's "Dead-End Job" is "Dead End Job" on MultiMovies.
+  { label: "Dead-End Job S01E01", id: "289517", type: "tv", s: 1, e: 1, only: ["multimovies"] },
 ];
 
 const MOCK = {
   "/tv/46260": { id: 46260, original_language: "ja", name: "Naruto", original_name: "ナルト", first_air_date: "2002-10-03", seasons: [{ season_number: 1, episode_count: 220 }] },
   "/movie/1311031": { id: 1311031, original_language: "ja", title: "Demon Slayer: Kimetsu no Yaiba Infinity Castle", original_title: "劇場版「鬼滅の刃」無限城編 第一章 猗窩座再来", release_date: "2025-07-18" },
+  "/tv/289517": { id: 289517, original_language: "ko", name: "Dead-End Job", original_name: "꿀알바", first_air_date: "2026-01-01", poster_path: "/vrDDqk9PAkIs0PQAbW5G0yhPVS3.jpg", seasons: [{ season_number: 1, episode_count: 12 }] },
   "/movie/372058": { id: 372058, original_language: "ja", title: "Your Name.", original_title: "君の名は。", release_date: "2016-08-26", poster_path: "/q719jXXEzOoYaps6babgKnONONX.jpg" },
 };
 
@@ -68,6 +71,7 @@ async function checkStream(st) {
   for (const p of providers) {
     const { getStreams } = require(path.join(__dirname, "..", "providers", p + ".js"));
     for (const c of CASES) {
+      if (c.only && !c.only.includes(p)) continue;
       const t0 = Date.now();
       const streams = await getStreams(c.id, c.type, c.s, c.e);
       console.log(`\n=== ${p} | ${c.label} | ${streams.length} streams | ${Date.now() - t0}ms`);
