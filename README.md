@@ -1,13 +1,33 @@
 # NAMA: Nuvio providers
 
-Nuvio local-scraper providers for Indian-dub anime:
+Nuvio local-scraper providers for Indian-dub anime and movies:
 
 | Provider | Site | Player host | Audio |
 |---|---|---|---|
 | AnimeSalt | animesalt.cx | ravok.buzz | HI • TA • TE • EN • JA |
 | WatchAnimeWorld | watchanimeworld.one | play.zephyrix.org | HI • TA • TE • ML • BN • EN • JA |
+| MultiMovies | current mirror from multimovies.wtf | 8 servers, see below | whatever each server has |
 
 Each server gives two streams, **1080p** and **720p**. Each stream carries **every audio language**, which you switch in Nuvio's player.
+
+### MultiMovies
+The domain rotates, so each lookup reads the current mirror from the "Visit MultiMovies" button on
+`multimovies.wtf` (falling back to `m1.multimovies.courses`). A title is found with the site's `/api/search`,
+and the watch page's `watchConfig.initialServers` lists the servers. Each server has its own extractor:
+
+| Server | How it resolves |
+|---|---|
+| Vidrift | `orionStreams` in the embed page (movies), or `/api/source` (tv) |
+| VidBolt | `/api/resolve` |
+| Filmu | sealed stream list in the Next.js payload (vidly.pro) |
+| Nexus | server-action token + sha256 proof of work, then `/api/extract` |
+| GD mirror / IQSmart, Filesforever Mirror | iqsmart `embedhelper2` → StreamHG / EarnVids (packed JWPlayer) |
+| Cineverse | modiplay switcher → EarnVids / StreamHG |
+| VIDOUT | its GitHub catalogue (titles not listed there have no VIDOUT stream) |
+
+Servers that list each dub as a separate source (Vidrift, VidBolt, Filmu, Nexus) are merged: one video plus
+every dub as an audio track, keeping only dubs whose length matches (another cut would drift). Each server gives
+one stream per resolution (1080p, 720p) with all its audio languages, and no per-language streams.
 
 ## Install in Nuvio
 Settings → Plugins (Local Scrapers) → add repository:

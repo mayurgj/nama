@@ -7,11 +7,13 @@ const CASES = [
   { label: "Naruto S01E001", id: "46260", type: "tv", s: 1, e: 1 },
   { label: "Naruto S01E058", id: "46260", type: "tv", s: 1, e: 58 },
   { label: "Demon Slayer: Infinity Castle", id: "1311031", type: "movie" },
+  { label: "Your Name", id: "372058", type: "movie" },
 ];
 
 const MOCK = {
-  "/tv/46260": { id: 46260, name: "Naruto", original_name: "ナルト", first_air_date: "2002-10-03", seasons: [{ season_number: 1, episode_count: 220 }] },
-  "/movie/1311031": { id: 1311031, title: "Demon Slayer: Kimetsu no Yaiba Infinity Castle", original_title: "劇場版「鬼滅の刃」無限城編 第一章 猗窩座再来", release_date: "2025-07-18" },
+  "/tv/46260": { id: 46260, original_language: "ja", name: "Naruto", original_name: "ナルト", first_air_date: "2002-10-03", seasons: [{ season_number: 1, episode_count: 220 }] },
+  "/movie/1311031": { id: 1311031, original_language: "ja", title: "Demon Slayer: Kimetsu no Yaiba Infinity Castle", original_title: "劇場版「鬼滅の刃」無限城編 第一章 猗窩座再来", release_date: "2025-07-18" },
+  "/movie/372058": { id: 372058, original_language: "ja", title: "Your Name.", original_title: "君の名は。", release_date: "2016-08-26", poster_path: "/q719jXXEzOoYaps6babgKnONONX.jpg" },
 };
 
 const realFetch = global.fetch;
@@ -31,6 +33,11 @@ function decodePlaylist(url) {
 
 async function checkStream(st) {
   const problems = [];
+  if (st.type === "mp4") {
+    const r = await realFetch(st.url, { headers: Object.assign({ Range: "bytes=0-1023" }, st.headers) });
+    if (r.status !== 200 && r.status !== 206) problems.push("mp4 HTTP " + r.status);
+    return problems;
+  }
   if (!st.url.startsWith("data:")) {
     const r = await realFetch(st.url, { headers: st.headers });
     const t = await r.text();
@@ -43,7 +50,8 @@ async function checkStream(st) {
   if (!pl.startsWith("#EXTM3U")) problems.push("no #EXTM3U");
   if (infs.length !== 1) problems.push(infs.length + " STREAM-INF lines");
   if (!infs[0] || !infs[0].includes("x" + parseInt(/\| (\d+)p/.exec(st.name)[1]))) problems.push("resolution mismatch");
-  if (!audios.length) problems.push("no audio renditions");
+  // Muxed audio (no AUDIO group on the variant) is fine too.
+  if (!audios.length && infs[0] && infs[0].includes("AUDIO=")) problems.push("no audio renditions");
   const uris = pl.split("\n").filter((l) => l && !l.startsWith("#")).concat(audios.slice(0, 1).map((l) => /URI="([^"]+)"/.exec(l)[1]));
   for (const u of uris) {
     if (!/^https?:\/\//.test(u)) { problems.push("relative uri " + u); continue; }
@@ -55,7 +63,7 @@ async function checkStream(st) {
 }
 
 (async () => {
-  const providers = process.argv.slice(2).length ? process.argv.slice(2) : ["animesalt", "watchanimeworld"];
+  const providers = process.argv.slice(2).length ? process.argv.slice(2) : ["animesalt", "watchanimeworld", "multimovies"];
   let failed = 0;
   for (const p of providers) {
     const { getStreams } = require(path.join(__dirname, "..", "providers", p + ".js"));

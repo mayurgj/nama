@@ -32,6 +32,7 @@ function namaLangCode(audio) {
     var k = String(keys[i] || "").toLowerCase().trim();
     if (NAMA_LANGS[k]) return NAMA_LANGS[k];
   }
+  if (/^[a-z]{2}$/i.test(audio.lang || "")) return audio.lang.toUpperCase();
   return String(audio.name || audio.lang || "??").slice(0, 2).toUpperCase();
 }
 
@@ -76,8 +77,9 @@ function namaFormatStream(ctx, url, heights) {
   // Per-language streams carry one audio track: tag the name, spell out the language.
   var single = ctx.audios.length === 1 && ctx.perLanguage;
   if (single) audioLine = "🎧 " + (ctx.audios[0].name || langs[0]);
+  var label = ctx.site.name + (ctx.server ? " · " + ctx.server : "");
   return {
-    name: "NAMA | " + ctx.site.name + " | " + quality + (single ? " | " + langs[0] : "") + "\n" + heading,
+    name: "NAMA | " + label + " | " + quality + (single ? " | " + langs[0] : "") + "\n" + heading,
     title: [heading, audioLine, "📺 " + (res.length ? res.join(" • ") : "Auto") + " • HLS", "🌐 " + ctx.host].join("\n"),
     url: url,
     size: "HLS • " + ctx.host + "\n" + (langs.length > 1 ? "🎧 " + langs.join(" • ") : audioLine),

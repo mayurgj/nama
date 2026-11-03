@@ -23,7 +23,7 @@ function tmdbResolveId(id, mediaType) {
   });
 }
 
-// Returns { type, title, original, year, poster, season, episode, absEpisode, episodeName, altTitles }.
+// Returns { type, tmdbId, originalLanguage, title, original, year, poster, season, episode, absEpisode, episodeName, altTitles }.
 function tmdbMeta(tmdbId, mediaType, season, episode) {
   var isMovie = mediaType === "movie";
   return tmdbResolveId(tmdbId, mediaType)
@@ -33,6 +33,8 @@ function tmdbMeta(tmdbId, mediaType, season, episode) {
     .then(function (d) {
       var meta = {
         type: isMovie ? "movie" : "tv",
+        tmdbId: String(d.id),
+        originalLanguage: d.original_language || "",
         title: isMovie ? d.title : d.name,
         original: isMovie ? d.original_title : d.original_name,
         year: ((isMovie ? d.release_date : d.first_air_date) || "").slice(0, 4),
